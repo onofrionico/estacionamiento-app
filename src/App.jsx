@@ -14,7 +14,7 @@ import {
   downloadXLSX, dayKey, startOfDay,
 } from "./lib/format";
 import {
-  SectionTitle, StatCard, CorteCard, ChartCard, EmptyState, ConfigField, RateField,
+  SectionTitle, CorteCard, ChartCard, EmptyState, ConfigField, RateField,
 } from "./components/ui";
 import RootStyles from "./components/RootStyles";
 import { TopBar, BottomNav } from "./components/Nav";
