@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   AlertTriangle, ParkingSquare
 } from "lucide-react";
@@ -191,5 +191,3 @@ export default function App() {
     </div>
   );
 }
-
-
