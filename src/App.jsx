@@ -1,0 +1,1085 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  Car, Bike, Truck, LogIn, LogOut, Gauge, BarChart3, Settings2,
+  Search, Check, X, Clock3, TrendingUp, AlertTriangle, RotateCcw,
+  Trash2, ChevronRight, ParkingSquare, Download
+} from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
+import * as XLSX from "xlsx";
+import { storage } from "./storage";
+
+/* ------------------------------------------------------------------ */
+/* Config & helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+const STORAGE_KEY = "estacionamiento-datos";
+
+const DEFAULT_CONFIG = {
+  nombre: "Mi Estacionamiento",
+  totalEspacios: 40,
+  rates: {
+    mediaHora: 1500,
+    hora: 2500,
+    mediaEstadia: 8000,
+    estadiaCompleta: 14000,
+    semanal: 70000,
+    mensual: 220000,
+  },
+  umbrales: {
+    mediaEstadiaHoras: 6,
+    estadiaCompletaHoras: 24,
+  },
+};
+
+const DEFAULT_DATA = { config: DEFAULT_CONFIG, vehicles: [] };
+
+const TIPOS = [
+  { id: "auto", label: "Auto", Icon: Car },
+  { id: "moto", label: "Moto", Icon: Bike },
+  { id: "camioneta", label: "Camioneta", Icon: Truck },
+];
+
+const fmtMoney = (n) =>
+  new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(n || 0);
+
+const fmtDur = (mins) => {
+  const m = Math.max(0, Math.round(mins));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  if (h === 0) return `${r} min`;
+  return `${h} h ${r > 0 ? r + " min" : ""}`.trim();
+};
+
+const fmtTime = (ts) =>
+  new Date(ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+
+const fmtDateShort = (ts) =>
+  new Date(ts).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+
+/** Calcula el monto a cobrar dado un tiempo de estadía en minutos. */
+function calcularMonto(minutos, rates, umbrales) {
+  const { mediaHora, hora, mediaEstadia, estadiaCompleta, semanal, mensual } = rates;
+  const mediaEstadiaMin = umbrales.mediaEstadiaHoras * 60;
+  const estadiaCompletaMin = umbrales.estadiaCompletaHoras * 60;
+
+  if (minutos <= 30) return mediaHora;
+  if (minutos <= 60) return hora;
+
+  if (minutos <= mediaEstadiaMin) {
+    const bloques = Math.ceil((minutos - 60) / 30);
+    return Math.min(hora + bloques * mediaHora, mediaEstadia);
+  }
+
+  if (minutos <= estadiaCompletaMin) {
+    const bloques = Math.ceil((minutos - mediaEstadiaMin) / 60);
+    return Math.min(mediaEstadia + bloques * hora, estadiaCompleta);
+  }
+
+  const dias = Math.ceil(minutos / (24 * 60));
+  if (dias < 7) return Math.min(dias * estadiaCompleta, semanal);
+
+  const semanas = Math.ceil(dias / 7);
+  if (dias < 30) return Math.min(semanas * semanal, mensual);
+
+  const meses = Math.ceil(dias / 30);
+  return meses * mensual;
+}
+
+function tramoLabel(minutos, umbrales) {
+  const mediaEstadiaMin = umbrales.mediaEstadiaHoras * 60;
+  const estadiaCompletaMin = umbrales.estadiaCompletaHoras * 60;
+  if (minutos <= 30) return "Media hora";
+  if (minutos <= 60) return "Hora";
+  if (minutos <= mediaEstadiaMin) return "Media estadía";
+  if (minutos <= estadiaCompletaMin) return "Estadía completa";
+  const dias = Math.ceil(minutos / (24 * 60));
+  if (dias < 7) return `Estadía por día (${dias}d)`;
+  if (dias < 30) return `Tarifa semanal`;
+  return `Tarifa mensual`;
+}
+
+/** Genera y descarga un archivo .xlsx con una o más hojas. sheets = { NombreHoja: [ {col: val, ...}, ... ] } */
+function downloadXLSX(filename, sheets) {
+  const wb = XLSX.utils.book_new();
+  Object.entries(sheets).forEach(([name, rows]) => {
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ "Sin datos": "" }]);
+    XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+  });
+  XLSX.writeFile(wb, filename);
+}
+
+const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
+const startOfDay = (d) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x.getTime();
+};
+
+/* ------------------------------------------------------------------ */
+/* App                                                                  */
+/* ------------------------------------------------------------------ */
+
+export default function App() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(false);
+  const [tab, setTab] = useState("entrada");
+  const [now, setNow] = useState(Date.now());
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await storage.get(STORAGE_KEY);
+        if (res && res.value) {
+          const parsed = JSON.parse(res.value);
+          setData({
+            config: { ...DEFAULT_CONFIG, ...parsed.config, rates: { ...DEFAULT_CONFIG.rates, ...(parsed.config?.rates || {}) }, umbrales: { ...DEFAULT_CONFIG.umbrales, ...(parsed.config?.umbrales || {}) } },
+            vehicles: parsed.vehicles || [],
+          });
+        } else {
+          setData(DEFAULT_DATA);
+        }
+      } catch (e) {
+        setData(DEFAULT_DATA);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+
+  const persist = useCallback(async (newData) => {
+    setData(newData);
+    try {
+      await storage.set(STORAGE_KEY, JSON.stringify(newData));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }, []);
+
+  if (loading || !data) {
+    return (
+      <div style={{ background: "var(--bg)" }} className="min-h-screen flex items-center justify-center">
+        <RootStyles />
+        <div className="text-center">
+          <ParkingSquare className="animate-pulse mx-auto mb-3" size={40} style={{ color: "var(--accent)" }} />
+          <p style={{ color: "var(--muted)" }} className="text-sm">Cargando estacionamiento…</p>
+        </div>
+      </div>
+    );
+  }
+
+  const vehiculosDentro = data.vehicles.filter((v) => v.estado === "dentro");
+  const ocupados = vehiculosDentro.length;
+  const disponibles = Math.max(0, data.config.totalEspacios - ocupados);
+  const ocupacionPct = Math.min(100, Math.round((ocupados / Math.max(1, data.config.totalEspacios)) * 100));
+
+  const registrarIngreso = (patente, tipo) => {
+    const pat = patente.trim().toUpperCase();
+    if (!pat) return showToast("Ingresá una patente");
+    if (vehiculosDentro.some((v) => v.patente === pat)) {
+      return showToast(`${pat} ya está registrado dentro`);
+    }
+    if (disponibles <= 0) return showToast("No hay espacio disponible");
+    const vehicle = {
+      id: `${pat}-${Date.now()}`,
+      patente: pat,
+      tipo,
+      horaIngreso: Date.now(),
+      horaSalida: null,
+      monto: null,
+      estado: "dentro",
+    };
+    persist({ ...data, vehicles: [vehicle, ...data.vehicles] });
+    showToast(`Ingreso registrado: ${pat}`);
+  };
+
+  const registrarSalida = (id) => {
+    const v = data.vehicles.find((x) => x.id === id);
+    if (!v) return;
+    const minutos = (Date.now() - v.horaIngreso) / 60000;
+    const monto = calcularMonto(minutos, data.config.rates, data.config.umbrales);
+    const updated = data.vehicles.map((x) =>
+      x.id === id ? { ...x, horaSalida: Date.now(), monto, estado: "afuera" } : x
+    );
+    persist({ ...data, vehicles: updated });
+    showToast(`Salida registrada: ${v.patente} · ${fmtMoney(monto)}`);
+  };
+
+  const updateConfig = (config) => persist({ ...data, config });
+
+  const resetDemo = () => {
+    persist(DEFAULT_DATA);
+    showToast("Datos reiniciados");
+  };
+
+  const borrarTodo = () => {
+    persist({ ...data, vehicles: [] });
+    showToast("Historial borrado");
+  };
+
+  return (
+    <div style={{ background: "var(--bg)", color: "var(--text)" }} className="min-h-screen flex flex-col font-sans">
+      <RootStyles />
+      <TopBar config={data.config} ocupados={ocupados} disponibles={disponibles} ocupacionPct={ocupacionPct} />
+
+      <main className="flex-1 overflow-y-auto pb-24 px-4 pt-4 max-w-md w-full mx-auto">
+        {tab === "entrada" && (
+          <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} />
+        )}
+        {tab === "salida" && (
+          <SalidaTab
+            vehiculosDentro={vehiculosDentro}
+            now={now}
+            rates={data.config.rates}
+            umbrales={data.config.umbrales}
+            onSalida={registrarSalida}
+          />
+        )}
+        {tab === "estado" && (
+          <EstadoTab
+            vehiculosDentro={vehiculosDentro}
+            now={now}
+            totalEspacios={data.config.totalEspacios}
+            disponibles={disponibles}
+          />
+        )}
+        {tab === "reportes" && (
+          <ReportesTab vehicles={data.vehicles} now={now} />
+        )}
+        {tab === "config" && (
+          <ConfigTab
+            config={data.config}
+            onSave={updateConfig}
+            onResetDemo={resetDemo}
+            onBorrarTodo={borrarTodo}
+          />
+        )}
+      </main>
+
+      <BottomNav tab={tab} setTab={setTab} disponibles={disponibles} />
+
+      {toast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-24 px-4 py-2.5 rounded-full shadow-lg text-sm font-medium z-50"
+          style={{ background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)" }}
+        >
+          {toast}
+        </div>
+      )}
+      {saveError && (
+        <div
+          className="fixed top-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs flex items-center gap-1.5 z-50"
+          style={{ background: "var(--danger)", color: "#fff" }}
+        >
+          <AlertTriangle size={13} /> No se pudo guardar
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Top bar + bottom nav                                                */
+/* ------------------------------------------------------------------ */
+
+function TopBar({ config, ocupados, disponibles, ocupacionPct }) {
+  const [clock, setClock] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setClock(new Date()), 1000 * 30);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <header style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)" }} className="sticky top-0 z-40">
+      <div className="max-w-md mx-auto px-4 pt-4 pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 style={{ fontFamily: "var(--font-display)" }} className="text-lg font-bold leading-tight tracking-tight">
+              {config.nombre}
+            </h1>
+            <p style={{ color: "var(--muted)" }} className="text-xs mt-0.5">
+              {clock.toLocaleDateString("es-AR", { weekday: "long", day: "2-digit", month: "short" })} · {clock.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+            </p>
+          </div>
+          <div className="text-right">
+            <div style={{ fontFamily: "var(--font-display)", color: disponibles === 0 ? "var(--danger)" : "var(--accent2)" }} className="text-2xl font-bold leading-none">
+              {disponibles}
+            </div>
+            <p style={{ color: "var(--muted)" }} className="text-[10px] uppercase tracking-wide mt-0.5">
+              libres / {config.totalEspacios}
+            </p>
+          </div>
+        </div>
+        {/* barrera indicator */}
+        <div className="mt-3 h-1.5 w-full rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{
+              width: `${ocupacionPct}%`,
+              background: ocupacionPct >= 90 ? "var(--danger)" : ocupacionPct >= 70 ? "var(--accent)" : "var(--accent2)",
+            }}
+          />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function BottomNav({ tab, setTab, disponibles }) {
+  const items = [
+    { id: "entrada", label: "Entrada", Icon: LogIn },
+    { id: "salida", label: "Salida", Icon: LogOut },
+    { id: "estado", label: "Estado", Icon: Gauge },
+    { id: "reportes", label: "Reportes", Icon: BarChart3 },
+    { id: "config", label: "Config", Icon: Settings2 },
+  ];
+  return (
+    <nav
+      style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}
+      className="fixed bottom-0 left-0 right-0 z-40"
+    >
+      <div className="max-w-md mx-auto grid grid-cols-5">
+        {items.map(({ id, label, Icon }) => {
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className="flex flex-col items-center justify-center gap-1 py-2.5 relative"
+              style={{ color: active ? "var(--accent)" : "var(--muted)" }}
+            >
+              <div className="relative">
+                <Icon size={20} strokeWidth={active ? 2.4 : 2} />
+                {id === "estado" && disponibles === 0 && (
+                  <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full" style={{ background: "var(--danger)" }} />
+                )}
+              </div>
+              <span className="text-[10px] font-medium">{label}</span>
+              {active && (
+                <span className="absolute top-0 h-0.5 w-8 rounded-full" style={{ background: "var(--accent)" }} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Entrada                                                             */
+/* ------------------------------------------------------------------ */
+
+function EntradaTab({ onRegistrar, disponibles }) {
+  const [patente, setPatente] = useState("");
+  const [tipo, setTipo] = useState("auto");
+
+  const submit = (e) => {
+    e.preventDefault();
+    onRegistrar(patente, tipo);
+    setPatente("");
+  };
+
+  return (
+    <div>
+      <SectionTitle icon={LogIn} title="Registrar ingreso" subtitle="Cargá la patente y confirmá" />
+
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-1.5 block">
+            Patente
+          </label>
+          <input
+            autoFocus
+            value={patente}
+            onChange={(e) => setPatente(e.target.value.toUpperCase())}
+            placeholder="AB123CD"
+            className="w-full text-2xl font-bold tracking-widest text-center py-4 rounded-xl outline-none"
+            style={{
+              background: "var(--surface)",
+              border: "2px solid var(--border)",
+              color: "var(--text)",
+              fontFamily: "var(--font-display)",
+            }}
+            maxLength={8}
+          />
+        </div>
+
+        <div>
+          <label style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-1.5 block">
+            Tipo de vehículo
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {TIPOS.map(({ id, label, Icon }) => (
+              <button
+                type="button"
+                key={id}
+                onClick={() => setTipo(id)}
+                className="flex flex-col items-center gap-1.5 py-3 rounded-xl transition"
+                style={{
+                  background: tipo === id ? "var(--accent)" : "var(--surface)",
+                  color: tipo === id ? "#1A1300" : "var(--text)",
+                  border: `1px solid ${tipo === id ? "var(--accent)" : "var(--border)"}`,
+                }}
+              >
+                <Icon size={20} />
+                <span className="text-xs font-medium">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={disponibles <= 0}
+          className="w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-40"
+          style={{ background: "var(--accent2)", color: "#08210F" }}
+        >
+          <Check size={20} /> Registrar ingreso
+        </button>
+        {disponibles <= 0 && (
+          <p className="text-center text-sm" style={{ color: "var(--danger)" }}>
+            Estacionamiento completo — no hay espacio disponible.
+          </p>
+        )}
+      </form>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Salida                                                               */
+/* ------------------------------------------------------------------ */
+
+function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSalida }) {
+  const [q, setQ] = useState("");
+  const [confirmId, setConfirmId] = useState(null);
+
+  const filtered = vehiculosDentro.filter((v) => v.patente.includes(q.toUpperCase()));
+
+  return (
+    <div>
+      <SectionTitle icon={LogOut} title="Registrar salida" subtitle={`${vehiculosDentro.length} vehículo(s) dentro`} />
+
+      <div className="relative mb-4">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar patente…"
+          className="w-full pl-9 pr-3 py-2.5 rounded-xl outline-none text-sm"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          Icon={LogOut}
+          text={vehiculosDentro.length === 0 ? "No hay vehículos dentro para dar salida." : "Ningún vehículo coincide con la búsqueda."}
+        />
+      ) : (
+        <div className="space-y-2.5">
+          {filtered
+            .sort((a, b) => a.horaIngreso - b.horaIngreso)
+            .map((v) => {
+              const minutos = (now - v.horaIngreso) / 60000;
+              const monto = calcularMonto(minutos, rates, umbrales);
+              const Icon = TIPOS.find((t) => t.id === v.tipo)?.Icon || Car;
+              const confirming = confirmId === v.id;
+              return (
+                <div key={v.id} className="rounded-xl p-3.5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "var(--surface2)" }}>
+                        <Icon size={17} style={{ color: "var(--accent)" }} />
+                      </div>
+                      <div>
+                        <p style={{ fontFamily: "var(--font-display)" }} className="font-bold tracking-wide text-sm">{v.patente}</p>
+                        <p style={{ color: "var(--muted)" }} className="text-xs flex items-center gap-1">
+                          <Clock3 size={11} /> {fmtTime(v.horaIngreso)} · {fmtDur(minutos)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p style={{ fontFamily: "var(--font-display)" }} className="font-bold text-sm">{fmtMoney(monto)}</p>
+                      <p style={{ color: "var(--muted)" }} className="text-[10px]">{tramoLabel(minutos, umbrales)}</p>
+                    </div>
+                  </div>
+
+                  {confirming ? (
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => { onSalida(v.id); setConfirmId(null); }}
+                        className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5"
+                        style={{ background: "var(--accent2)", color: "#08210F" }}
+                      >
+                        <Check size={16} /> Confirmar cobro
+                      </button>
+                      <button
+                        onClick={() => setConfirmId(null)}
+                        className="px-4 py-2.5 rounded-lg font-medium text-sm"
+                        style={{ background: "var(--surface2)", color: "var(--muted)" }}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmId(v.id)}
+                      className="w-full mt-3 py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-1.5"
+                      style={{ background: "var(--surface2)", color: "var(--text)" }}
+                    >
+                      Dar salida <ChevronRight size={15} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Estado                                                               */
+/* ------------------------------------------------------------------ */
+
+function EstadoTab({ vehiculosDentro, now, totalEspacios, disponibles }) {
+  return (
+    <div>
+      <SectionTitle icon={Gauge} title="Estado del estacionamiento" subtitle="Ocupación en tiempo real" />
+
+      <div className="grid grid-cols-3 gap-2.5 mb-5">
+        <StatCard label="Ocupados" value={vehiculosDentro.length} color="var(--accent)" />
+        <StatCard label="Libres" value={disponibles} color="var(--accent2)" />
+        <StatCard label="Total" value={totalEspacios} color="var(--text)" />
+      </div>
+
+      {vehiculosDentro.length === 0 ? (
+        <EmptyState Icon={ParkingSquare} text="El estacionamiento está vacío por ahora." />
+      ) : (
+        <div className="space-y-2">
+          {vehiculosDentro
+            .sort((a, b) => a.horaIngreso - b.horaIngreso)
+            .map((v) => {
+              const Icon = TIPOS.find((t) => t.id === v.tipo)?.Icon || Car;
+              const minutos = (now - v.horaIngreso) / 60000;
+              return (
+                <div key={v.id} className="flex items-center justify-between rounded-lg px-3.5 py-2.5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center gap-2.5">
+                    <Icon size={16} style={{ color: "var(--muted)" }} />
+                    <span style={{ fontFamily: "var(--font-display)" }} className="font-semibold text-sm tracking-wide">{v.patente}</span>
+                  </div>
+                  <span style={{ color: "var(--muted)" }} className="text-xs">desde {fmtTime(v.horaIngreso)} · {fmtDur(minutos)}</span>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Reportes                                                             */
+/* ------------------------------------------------------------------ */
+
+function ReportesTab({ vehicles, now }) {
+  const [periodo, setPeriodo] = useState("hoy"); // hoy | semana | quincena | mes
+
+  const cortes = useMemo(() => computeCortes(vehicles, now), [vehicles, now]);
+
+  const chartData = useMemo(() => {
+    if (periodo === "hoy") return movimientosPorHora(vehicles, now);
+    const dias = periodo === "semana" ? 7 : periodo === "quincena" ? 15 : 30;
+    return movimientosPorDia(vehicles, now, dias);
+  }, [vehicles, periodo, now]);
+
+  const xKey = periodo === "hoy" ? "hora" : "fecha";
+
+  const exportarReporte = () => {
+    const resumenRows = [
+      { Período: "Hoy", Recaudado: cortes.hoy },
+      { Período: "Últimos 7 días", Recaudado: cortes.semanal },
+      { Período: "Últimos 15 días", Recaudado: cortes.quincenal },
+      { Período: "Últimos 30 días", Recaudado: cortes.mensual },
+    ];
+    const detalleRows = chartData.map((d) =>
+      periodo === "hoy"
+        ? { Hora: d.hora, Ingresos: d.ingresos, Egresos: d.egresos, Ocupación: d.ocupacion }
+        : { Fecha: d.fecha, Ingresos: d.ingresos, Egresos: d.egresos, Recaudado: d.recaudado, "Ocupación pico": d.picoOcupacion }
+    );
+    downloadXLSX(`reporte-estacionamiento-${dayKey(now)}.xlsx`, { Resumen: resumenRows, Detalle: detalleRows });
+  };
+
+  return (
+    <div>
+      <SectionTitle icon={BarChart3} title="Reportes" subtitle="Recaudación y ocupación" />
+
+      <div className="grid grid-cols-2 gap-2.5 mb-3">
+        <CorteCard label="Hoy" value={cortes.hoy} />
+        <CorteCard label="Últimos 7 días" value={cortes.semanal} />
+        <CorteCard label="Últimos 15 días" value={cortes.quincenal} />
+        <CorteCard label="Últimos 30 días" value={cortes.mensual} />
+      </div>
+
+      <button
+        onClick={exportarReporte}
+        className="w-full mb-4 py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+      >
+        <Download size={14} /> Exportar resumen y detalle (.xlsx)
+      </button>
+
+      <div className="flex gap-1.5 mb-4">
+        {[
+          { id: "hoy", label: "Hoy" },
+          { id: "semana", label: "Semana" },
+          { id: "quincena", label: "Quincena" },
+          { id: "mes", label: "Mes" },
+        ].map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPeriodo(p.id)}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold"
+            style={{
+              background: periodo === p.id ? "var(--accent)" : "var(--surface)",
+              color: periodo === p.id ? "#1A1300" : "var(--muted)",
+              border: `1px solid ${periodo === p.id ? "var(--accent)" : "var(--border)"}`,
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <ChartCard title="Ingresos y egresos">
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--text)" }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="ingresos" name="Ingresos" fill="var(--accent2)" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="egresos" name="Egresos" fill="var(--accent)" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <ChartCard title={periodo === "hoy" ? "Ocupación por hora" : "Ocupación pico por día"}>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--text)" }} />
+            <Bar dataKey={periodo === "hoy" ? "ocupacion" : "picoOcupacion"} name="Ocupación" fill="#5B8DEF" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <HistorialSection vehicles={vehicles} now={now} />
+    </div>
+  );
+}
+
+function HistorialSection({ vehicles, now }) {
+  const [q, setQ] = useState("");
+  const filtered = vehicles
+    .filter((v) => v.patente.includes(q.toUpperCase()))
+    .sort((a, b) => b.horaIngreso - a.horaIngreso);
+
+  const exportar = () => {
+    const rows = filtered.map((v) => ({
+      Patente: v.patente,
+      Tipo: TIPOS.find((t) => t.id === v.tipo)?.label || v.tipo,
+      Ingreso: new Date(v.horaIngreso).toLocaleString("es-AR"),
+      Salida: v.horaSalida ? new Date(v.horaSalida).toLocaleString("es-AR") : "-",
+      "Duración": fmtDur(((v.horaSalida || now) - v.horaIngreso) / 60000) + (v.horaSalida ? "" : " (en curso)"),
+      Monto: v.monto ?? "",
+      Estado: v.estado === "dentro" ? "Dentro" : "Afuera",
+    }));
+    downloadXLSX(`historial-vehiculos-${dayKey(now)}.xlsx`, { Historial: rows });
+  };
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-2.5">
+        <p style={{ fontFamily: "var(--font-display)" }} className="font-bold text-sm">
+          Historial de vehículos
+        </p>
+        <button
+          onClick={exportar}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg disabled:opacity-40"
+          style={{ background: "var(--surface2)", color: "var(--text)" }}
+        >
+          <Download size={13} /> Exportar .xlsx
+        </button>
+      </div>
+
+      <div className="relative mb-2.5">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar patente…"
+          className="w-full pl-8 pr-3 py-2 rounded-lg outline-none text-xs"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState Icon={Clock3} text="Todavía no hay registros que coincidan." />
+      ) : (
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <div className="max-h-72 overflow-y-auto">
+            {filtered.map((v, i) => {
+              const Icon = TIPOS.find((t) => t.id === v.tipo)?.Icon || Car;
+              return (
+                <div
+                  key={v.id}
+                  className="flex items-center justify-between px-3 py-2.5"
+                  style={{ background: "var(--surface)", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon size={14} style={{ color: "var(--muted)" }} />
+                    <div>
+                      <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-semibold tracking-wide">
+                        {v.patente}
+                      </p>
+                      <p style={{ color: "var(--muted)" }} className="text-[10px]">
+                        {fmtDateShort(v.horaIngreso)} {fmtTime(v.horaIngreso)}
+                        {v.horaSalida ? ` → ${fmtTime(v.horaSalida)}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {v.estado === "dentro" ? (
+                      <span
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: "var(--accent2)", color: "#08210F" }}
+                      >
+                        Dentro
+                      </span>
+                    ) : (
+                      <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-bold">
+                        {fmtMoney(v.monto)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function computeCortes(vehicles, now) {
+  const salidas = vehicles.filter((v) => v.estado === "afuera" && v.horaSalida);
+  const sum = (fromTs) => salidas.filter((v) => v.horaSalida >= fromTs).reduce((a, v) => a + (v.monto || 0), 0);
+  const hoyStart = startOfDay(now);
+  return {
+    hoy: sum(hoyStart),
+    semanal: sum(now - 7 * 24 * 3600 * 1000),
+    quincenal: sum(now - 15 * 24 * 3600 * 1000),
+    mensual: sum(now - 30 * 24 * 3600 * 1000),
+  };
+}
+
+function movimientosPorHora(vehicles, now) {
+  const dayStart = startOfDay(now);
+  const horaActual = new Date(now).getHours();
+  const arr = Array.from({ length: horaActual + 1 }, (_, h) => ({ hora: `${h}h`, ingresos: 0, egresos: 0, ocupacion: 0 }));
+  vehicles.forEach((v) => {
+    if (v.horaIngreso >= dayStart) {
+      const h = new Date(v.horaIngreso).getHours();
+      if (arr[h]) arr[h].ingresos++;
+    }
+    if (v.horaSalida && v.horaSalida >= dayStart) {
+      const h = new Date(v.horaSalida).getHours();
+      if (arr[h]) arr[h].egresos++;
+    }
+  });
+  for (let h = 0; h <= horaActual; h++) {
+    const t = dayStart + h * 3600000;
+    arr[h].ocupacion = vehicles.filter((v) => v.horaIngreso <= t && (v.horaSalida ? v.horaSalida > t : true)).length;
+  }
+  return arr;
+}
+
+function movimientosPorDia(vehicles, now, dias) {
+  const start = startOfDay(now) - (dias - 1) * 24 * 3600 * 1000;
+  const buckets = {};
+  const order = [];
+  for (let i = 0; i < dias; i++) {
+    const t = start + i * 24 * 3600 * 1000;
+    const k = dayKey(t);
+    buckets[k] = { fecha: fmtDateShort(t), ts: t, ingresos: 0, egresos: 0, recaudado: 0, picoOcupacion: 0 };
+    order.push(k);
+  }
+  vehicles.forEach((v) => {
+    const kin = dayKey(v.horaIngreso);
+    if (buckets[kin]) buckets[kin].ingresos++;
+    if (v.horaSalida) {
+      const kout = dayKey(v.horaSalida);
+      if (buckets[kout]) {
+        buckets[kout].egresos++;
+        buckets[kout].recaudado += v.monto || 0;
+      }
+    }
+  });
+  order.forEach((k) => {
+    const dayStart = buckets[k].ts;
+    let max = 0;
+    for (let h = 0; h < 24; h += 2) {
+      const t = dayStart + h * 3600000;
+      if (t > now) break;
+      const c = vehicles.filter((v) => v.horaIngreso <= t && (v.horaSalida ? v.horaSalida > t : true)).length;
+      if (c > max) max = c;
+    }
+    buckets[k].picoOcupacion = max;
+  });
+  return order.map((k) => buckets[k]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Config                                                               */
+/* ------------------------------------------------------------------ */
+
+function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo }) {
+  const [local, setLocal] = useState(config);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmBorrar, setConfirmBorrar] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const setRate = (key, val) => setLocal({ ...local, rates: { ...local.rates, [key]: Number(val) || 0 } });
+  const setUmbral = (key, val) => setLocal({ ...local, umbrales: { ...local.umbrales, [key]: Number(val) || 0 } });
+
+  const save = () => {
+    onSave(local);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  return (
+    <div>
+      <SectionTitle icon={Settings2} title="Configuración" subtitle="Espacios y tarifas" />
+
+      <div className="space-y-5">
+        <ConfigField label="Nombre del estacionamiento">
+          <input
+            value={local.nombre}
+            onChange={(e) => setLocal({ ...local, nombre: e.target.value })}
+            className="input-field"
+          />
+        </ConfigField>
+
+        <ConfigField label="Capacidad total (espacios)">
+          <input
+            type="number"
+            value={local.totalEspacios}
+            onChange={(e) => setLocal({ ...local, totalEspacios: Number(e.target.value) || 0 })}
+            className="input-field"
+          />
+        </ConfigField>
+
+        <div>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-2">Tarifas</p>
+          <div className="grid grid-cols-2 gap-2.5">
+            <RateField label="Media hora" value={local.rates.mediaHora} onChange={(v) => setRate("mediaHora", v)} />
+            <RateField label="Hora" value={local.rates.hora} onChange={(v) => setRate("hora", v)} />
+            <RateField label="Media estadía" value={local.rates.mediaEstadia} onChange={(v) => setRate("mediaEstadia", v)} />
+            <RateField label="Estadía completa" value={local.rates.estadiaCompleta} onChange={(v) => setRate("estadiaCompleta", v)} />
+            <RateField label="Semanal" value={local.rates.semanal} onChange={(v) => setRate("semanal", v)} />
+            <RateField label="Mensual" value={local.rates.mensual} onChange={(v) => setRate("mensual", v)} />
+          </div>
+        </div>
+
+        <div>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-2">Umbrales de tramo</p>
+          <div className="grid grid-cols-2 gap-2.5">
+            <RateField label="Media estadía desde (hs)" value={local.umbrales.mediaEstadiaHoras} onChange={(v) => setUmbral("mediaEstadiaHoras", v)} suffix="hs" />
+            <RateField label="Estadía completa desde (hs)" value={local.umbrales.estadiaCompletaHoras} onChange={(v) => setUmbral("estadiaCompletaHoras", v)} suffix="hs" />
+          </div>
+        </div>
+
+        <button
+          onClick={save}
+          className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+          style={{ background: saved ? "var(--accent2)" : "var(--accent)", color: "#1A1300" }}
+        >
+          {saved ? <Check size={17} /> : null} {saved ? "Guardado" : "Guardar cambios"}
+        </button>
+
+        <div className="pt-4 mt-2 space-y-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide">Zona de riesgo</p>
+
+          {confirmBorrar ? (
+            <div className="flex gap-2">
+              <button onClick={() => { onBorrarTodo(); setConfirmBorrar(false); }} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "var(--danger)", color: "#fff" }}>
+                Confirmar borrado
+              </button>
+              <button onClick={() => setConfirmBorrar(false)} className="px-4 py-2.5 rounded-lg text-sm" style={{ background: "var(--surface2)", color: "var(--muted)" }}>Cancelar</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmBorrar(true)} className="w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2" style={{ background: "var(--surface)", border: "1px solid var(--danger)", color: "var(--danger)" }}>
+              <Trash2 size={15} /> Borrar historial de vehículos
+            </button>
+          )}
+
+          {confirmReset ? (
+            <div className="flex gap-2">
+              <button onClick={() => { onResetDemo(); setConfirmReset(false); }} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "var(--surface2)", color: "var(--text)" }}>
+                Confirmar reinicio total
+              </button>
+              <button onClick={() => setConfirmReset(false)} className="px-4 py-2.5 rounded-lg text-sm" style={{ background: "var(--surface2)", color: "var(--muted)" }}>Cancelar</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmReset(true)} className="w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+              <RotateCcw size={15} /> Restablecer configuración por defecto
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* UI bits                                                              */
+/* ------------------------------------------------------------------ */
+
+function SectionTitle({ icon: Icon, title, subtitle }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-4 mt-1">
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <Icon size={17} style={{ color: "var(--accent)" }} />
+      </div>
+      <div>
+        <h2 style={{ fontFamily: "var(--font-display)" }} className="font-bold text-base leading-tight">{title}</h2>
+        {subtitle && <p style={{ color: "var(--muted)" }} className="text-xs">{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div className="rounded-xl py-3.5 text-center" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div style={{ fontFamily: "var(--font-display)", color }} className="text-xl font-bold">{value}</div>
+      <div style={{ color: "var(--muted)" }} className="text-[10px] uppercase tracking-wide mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function CorteCard({ label, value }) {
+  return (
+    <div className="rounded-xl p-3.5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <p style={{ color: "var(--muted)" }} className="text-[10px] uppercase tracking-wide mb-1">{label}</p>
+      <p style={{ fontFamily: "var(--font-display)" }} className="text-lg font-bold">{fmtMoney(value)}</p>
+    </div>
+  );
+}
+
+function ChartCard({ title, children }) {
+  return (
+    <div className="rounded-xl p-3.5 mb-3" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <p style={{ color: "var(--muted)" }} className="text-xs font-semibold mb-1">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function EmptyState({ Icon, text }) {
+  return (
+    <div className="rounded-xl py-10 flex flex-col items-center text-center px-6" style={{ background: "var(--surface)", border: "1px dashed var(--border)" }}>
+      <Icon size={28} style={{ color: "var(--muted)" }} className="mb-2.5" />
+      <p style={{ color: "var(--muted)" }} className="text-sm">{text}</p>
+    </div>
+  );
+}
+
+function ConfigField({ label, children }) {
+  return (
+    <div>
+      <label style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-1.5 block">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function RateField({ label, value, onChange, suffix = "$" }) {
+  return (
+    <div className="rounded-lg px-3 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <label style={{ color: "var(--muted)" }} className="text-[10px] block mb-0.5">{label}</label>
+      <div className="flex items-center gap-1">
+        {suffix === "$" && <span style={{ color: "var(--muted)" }} className="text-xs">$</span>}
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-transparent outline-none text-sm font-semibold"
+          style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}
+        />
+        {suffix !== "$" && <span style={{ color: "var(--muted)" }} className="text-xs">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function RootStyles() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+      :root {
+        --bg: #14171A;
+        --surface: #1C2126;
+        --surface2: #262C33;
+        --border: #323A42;
+        --text: #F1F0EC;
+        --muted: #8A9199;
+        --accent: #F4B400;
+        --accent2: #35C97F;
+        --danger: #E5484D;
+        --font-display: 'Space Grotesk', sans-serif;
+      }
+      .font-sans { font-family: 'Inter', sans-serif; }
+      .input-field {
+        width: 100%;
+        padding: 0.65rem 0.85rem;
+        border-radius: 0.65rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        outline: none;
+        font-size: 0.9rem;
+      }
+      input[type=number]::-webkit-inner-spin-button { opacity: 1; }
+    `}</style>
+  );
+}
