@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-  Car, Bike, Truck, LogIn, LogOut, Gauge, BarChart3, Settings2,
+  Car, Bike, Truck, LogOut, Gauge, BarChart3, Settings2,
   Search, Check, X, Clock3, TrendingUp, AlertTriangle, RotateCcw,
   Trash2, ChevronRight, ParkingSquare, Download
 } from "lucide-react";
@@ -18,6 +18,7 @@ import {
 } from "./components/ui";
 import RootStyles from "./components/RootStyles";
 import { TopBar, BottomNav } from "./components/Nav";
+import EntradaTab from "./components/EntradaTab";
 
 /* ------------------------------------------------------------------ */
 /* App                                                                  */
@@ -192,87 +193,6 @@ export default function App() {
           <AlertTriangle size={13} /> No se pudo guardar
         </div>
       )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Entrada                                                             */
-/* ------------------------------------------------------------------ */
-
-function EntradaTab({ onRegistrar, disponibles }) {
-  const [patente, setPatente] = useState("");
-  const [tipo, setTipo] = useState("auto");
-
-  const submit = (e) => {
-    e.preventDefault();
-    onRegistrar(patente, tipo);
-    setPatente("");
-  };
-
-  return (
-    <div>
-      <SectionTitle icon={LogIn} title="Registrar ingreso" subtitle="Cargá la patente y confirmá" />
-
-      <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-1.5 block">
-            Patente
-          </label>
-          <input
-            autoFocus
-            value={patente}
-            onChange={(e) => setPatente(e.target.value.toUpperCase())}
-            placeholder="AB123CD"
-            className="w-full text-2xl font-bold tracking-widest text-center py-4 rounded-xl outline-none"
-            style={{
-              background: "var(--surface)",
-              border: "2px solid var(--border)",
-              color: "var(--text)",
-              fontFamily: "var(--font-display)",
-            }}
-            maxLength={8}
-          />
-        </div>
-
-        <div>
-          <label style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-1.5 block">
-            Tipo de vehículo
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {TIPOS.map(({ id, label, Icon }) => (
-              <button
-                type="button"
-                key={id}
-                onClick={() => setTipo(id)}
-                className="flex flex-col items-center gap-1.5 py-3 rounded-xl transition"
-                style={{
-                  background: tipo === id ? "var(--accent)" : "var(--surface)",
-                  color: tipo === id ? "#1A1300" : "var(--text)",
-                  border: `1px solid ${tipo === id ? "var(--accent)" : "var(--border)"}`,
-                }}
-              >
-                <Icon size={20} />
-                <span className="text-xs font-medium">{label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={disponibles <= 0}
-          className="w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-40"
-          style={{ background: "var(--accent2)", color: "#08210F" }}
-        >
-          <Check size={20} /> Registrar ingreso
-        </button>
-        {disponibles <= 0 && (
-          <p className="text-center text-sm" style={{ color: "var(--danger)" }}>
-            Estacionamiento completo — no hay espacio disponible.
-          </p>
-        )}
-      </form>
     </div>
   );
 }
