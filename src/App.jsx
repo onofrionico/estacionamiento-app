@@ -9,37 +9,11 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { storage } from "./storage";
+import { STORAGE_KEY, DEFAULT_CONFIG, DEFAULT_DATA, TIPOS } from "./constants";
 
 /* ------------------------------------------------------------------ */
 /* Config & helpers                                                    */
 /* ------------------------------------------------------------------ */
-
-const STORAGE_KEY = "estacionamiento-datos";
-
-const DEFAULT_CONFIG = {
-  nombre: "Mi Estacionamiento",
-  totalEspacios: 40,
-  rates: {
-    mediaHora: 1500,
-    hora: 2500,
-    mediaEstadia: 8000,
-    estadiaCompleta: 14000,
-    semanal: 70000,
-    mensual: 220000,
-  },
-  umbrales: {
-    mediaEstadiaHoras: 6,
-    estadiaCompletaHoras: 24,
-  },
-};
-
-const DEFAULT_DATA = { config: DEFAULT_CONFIG, vehicles: [] };
-
-const TIPOS = [
-  { id: "auto", label: "Auto", Icon: Car },
-  { id: "moto", label: "Moto", Icon: Bike },
-  { id: "camioneta", label: "Camioneta", Icon: Truck },
-];
 
 const fmtMoney = (n) =>
   new Intl.NumberFormat("es-AR", {
