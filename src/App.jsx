@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import {
   AlertTriangle, ParkingSquare
 } from "lucide-react";
@@ -9,11 +9,12 @@ import {
 } from "./lib/format";
 import RootStyles from "./components/RootStyles";
 import { TopBar, BottomNav } from "./components/Nav";
-import EntradaTab from "./components/EntradaTab";
-import SalidaTab from "./components/SalidaTab";
-import EstadoTab from "./components/EstadoTab";
-import ReportesTab from "./components/ReportesTab";
-import ConfigTab from "./components/ConfigTab";
+
+const EntradaTab = lazy(() => import("./components/EntradaTab"));
+const SalidaTab = lazy(() => import("./components/SalidaTab"));
+const EstadoTab = lazy(() => import("./components/EstadoTab"));
+const ReportesTab = lazy(() => import("./components/ReportesTab"));
+const ConfigTab = lazy(() => import("./components/ConfigTab"));
 
 /* ------------------------------------------------------------------ */
 /* App                                                                  */
@@ -137,37 +138,45 @@ export default function App() {
       <TopBar config={data.config} ocupados={ocupados} disponibles={disponibles} ocupacionPct={ocupacionPct} />
 
       <main className="flex-1 overflow-y-auto pb-24 px-4 pt-4 max-w-md w-full mx-auto">
-        {tab === "entrada" && (
-          <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} />
-        )}
-        {tab === "salida" && (
-          <SalidaTab
-            vehiculosDentro={vehiculosDentro}
-            now={now}
-            rates={data.config.rates}
-            umbrales={data.config.umbrales}
-            onSalida={registrarSalida}
-          />
-        )}
-        {tab === "estado" && (
-          <EstadoTab
-            vehiculosDentro={vehiculosDentro}
-            now={now}
-            totalEspacios={data.config.totalEspacios}
-            disponibles={disponibles}
-          />
-        )}
-        {tab === "reportes" && (
-          <ReportesTab vehicles={data.vehicles} now={now} />
-        )}
-        {tab === "config" && (
-          <ConfigTab
-            config={data.config}
-            onSave={updateConfig}
-            onResetDemo={resetDemo}
-            onBorrarTodo={borrarTodo}
-          />
-        )}
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-20">
+              <ParkingSquare className="animate-pulse" size={32} style={{ color: "var(--accent)" }} />
+            </div>
+          }
+        >
+          {tab === "entrada" && (
+            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} />
+          )}
+          {tab === "salida" && (
+            <SalidaTab
+              vehiculosDentro={vehiculosDentro}
+              now={now}
+              rates={data.config.rates}
+              umbrales={data.config.umbrales}
+              onSalida={registrarSalida}
+            />
+          )}
+          {tab === "estado" && (
+            <EstadoTab
+              vehiculosDentro={vehiculosDentro}
+              now={now}
+              totalEspacios={data.config.totalEspacios}
+              disponibles={disponibles}
+            />
+          )}
+          {tab === "reportes" && (
+            <ReportesTab vehicles={data.vehicles} now={now} />
+          )}
+          {tab === "config" && (
+            <ConfigTab
+              config={data.config}
+              onSave={updateConfig}
+              onResetDemo={resetDemo}
+              onBorrarTodo={borrarTodo}
+            />
+          )}
+        </Suspense>
       </main>
 
       <BottomNav tab={tab} setTab={setTab} disponibles={disponibles} />
