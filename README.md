@@ -73,8 +73,8 @@ Para levantar tu propio backend:
 El repo incluye `render.yaml` (Blueprint) en la raíz, listo para que Render
 levante el sitio como static site.
 
-1. **Subir el repo a GitHub** (paso manual, previo a esto — todavía no está
-   hecho).
+1. **Si el repo todavía no está en GitHub, subilo primero** (paso manual,
+   previo a esto).
 2. En [Render](https://dashboard.render.com) ir a **New → Blueprint** y
    conectar el repositorio de GitHub. Render detecta `render.yaml`
    automáticamente y configura el build (`npm install && npm run build`) y el
