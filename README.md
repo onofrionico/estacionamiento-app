@@ -31,6 +31,13 @@ npm run preview   # para previsualizar el build localmente
 El resultado queda en `dist/`, listo para hostear en cualquier servicio de
 archivos estáticos (Vercel, Netlify, GitHub Pages, etc.).
 
+El code-splitting por tab (`ReportesTab`, `SalidaTab`, etc.) mantiene esos
+chunks livianos, pero el chunk principal (`index-*.js`) pesa ~663 kB (~204 kB
+gzip) porque incluye `@supabase/supabase-js` como import síncrono (vía
+`src/supabaseClient.js` → `src/storage.js` → `App.jsx`). Sin esa librería el
+chunk principal rondaría los ~442 kB que dejó el code-splitting; el resto es
+el costo del cliente de Supabase.
+
 ## Backend (Supabase)
 
 Los datos (autos registrados, configuración de tarifas) se guardan en
@@ -46,6 +53,14 @@ Para levantar tu propio backend:
    (Supabase → SQL Editor → pegar el contenido del archivo → Run). Crea la
    tabla `kv_store` con Row Level Security habilitado y una policy permisiva
    de lectura/escritura.
+
+   > **Nota de seguridad:** la policy es `using (true) with check (true)`, o
+   > sea que cualquiera que tenga la anon key (que viaja en el bundle del
+   > cliente, es pública por diseño) puede leer, escribir y borrar cualquier
+   > fila de `kv_store` sin autenticarse. Es aceptable para un equipo chico
+   > y de confianza usando la app internamente, pero antes de exponerla a
+   > más gente conviene restringir la policy (por ejemplo, scoping por
+   > usuario autenticado con Supabase Auth).
 3. **Copiar las credenciales**: `.env.example` a `.env`
 
    ```bash
@@ -67,6 +82,12 @@ Para levantar tu propio backend:
    ```
 
 `.env` está en `.gitignore` — las claves nunca se suben al repo.
+
+> **Limitación conocida (concurrencia):** la app lee y escribe todo el blob
+> de datos como un único JSON, sin suscripción realtime ni resolución de
+> conflictos. Si dos empleados editan desde dispositivos distintos casi al
+> mismo tiempo, gana el último `write` y se pierden los cambios del otro
+> (last-write-wins). Queda pendiente para un trabajo futuro.
 
 ## Deploy (Render)
 
