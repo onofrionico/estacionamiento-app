@@ -68,6 +68,26 @@ Para levantar tu propio backend:
 
 `.env` está en `.gitignore` — las claves nunca se suben al repo.
 
+## Deploy (Render)
+
+El repo incluye `render.yaml` (Blueprint) en la raíz, listo para que Render
+levante el sitio como static site.
+
+1. **Subir el repo a GitHub** (paso manual, previo a esto — todavía no está
+   hecho).
+2. En [Render](https://dashboard.render.com) ir a **New → Blueprint** y
+   conectar el repositorio de GitHub. Render detecta `render.yaml`
+   automáticamente y configura el build (`npm install && npm run build`) y el
+   publish path (`dist`) solo.
+3. **Completar las variables de entorno** en el dashboard de Render
+   (Environment del servicio): `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`,
+   con los mismos valores que usás en `.env` local. En `render.yaml` están
+   declaradas como `sync: false`, es decir que no viajan en el archivo — hay
+   que cargarlas a mano en el dashboard la primera vez.
+4. Cada push a la rama conectada (por ejemplo `main`) dispara un deploy
+   automático en Render. No hace falta configurar GitHub Actions ni ningún
+   otro paso de CI/CD.
+
 ## Estructura
 
 ```
