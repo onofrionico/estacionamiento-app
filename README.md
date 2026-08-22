@@ -31,28 +31,50 @@ npm run preview   # para previsualizar el build localmente
 El resultado queda en `dist/`, listo para hostear en cualquier servicio de
 archivos estáticos (Vercel, Netlify, GitHub Pages, etc.).
 
-## ⚠️ Estado actual del almacenamiento de datos
+## Backend (Supabase)
 
-Por ahora los datos (autos registrados, configuración de tarifas) se guardan
-en el `localStorage` del navegador — ver `src/storage.js`. Esto significa:
+Los datos (autos registrados, configuración de tarifas) se guardan en
+Supabase — ver `src/storage.js` y `src/supabaseClient.js` — así que se
+sincronizan entre todos los dispositivos que usen la app (todos leen y
+escriben la misma fila en la tabla `kv_store`).
 
-- Los datos **no se sincronizan** entre distintos dispositivos. Si dos
-  empleados usan la app desde celulares distintos, cada uno tiene su propia
-  copia.
-- Si se borra el caché del navegador, se pierden los datos.
+Para levantar tu propio backend:
 
-Es un punto de partida válido para seguir probando, pero **antes de usarla en
-producción con varios empleados** conviene reemplazar `src/storage.js` por un
-backend real (Supabase, Firebase, o una API propia) que centralice los datos.
-El resto de la app (`src/App.jsx`) no necesita cambios para eso: solo
-reimplementar `storage.get` / `storage.set` / `storage.delete`.
+1. **Crear un proyecto** en [supabase.com](https://supabase.com) (tier free
+   alcanza).
+2. **Correr el SQL** de `supabase/schema.sql` en el SQL editor del proyecto
+   (Supabase → SQL Editor → pegar el contenido del archivo → Run). Crea la
+   tabla `kv_store` con Row Level Security habilitado y una policy permisiva
+   de lectura/escritura.
+3. **Copiar las credenciales**: `.env.example` a `.env`
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   y completar las dos variables con los valores de Settings → API del
+   proyecto Supabase:
+
+   ```
+   VITE_SUPABASE_URL=<Project URL>
+   VITE_SUPABASE_ANON_KEY=<anon public key>
+   ```
+
+4. **Correr la app**:
+
+   ```bash
+   npm run dev
+   ```
+
+`.env` está en `.gitignore` — las claves nunca se suben al repo.
 
 ## Estructura
 
 ```
 src/
   App.jsx       # toda la lógica y UI de la aplicación
-  storage.js    # capa de persistencia (hoy: localStorage)
+  storage.js    # capa de persistencia (hoy: Supabase, tabla kv_store)
+  supabaseClient.js # cliente de Supabase (usa VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
   main.jsx      # punto de entrada de React
   index.css     # Tailwind
 ```
