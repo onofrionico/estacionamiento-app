@@ -12,3 +12,10 @@ create policy "allow anon read/write kv_store"
   on kv_store for all
   using (true)
   with check (true);
+
+-- La policy RLS de arriba no alcanza por si sola: Postgres exige ademas el
+-- GRANT de base sobre la tabla para el rol que hace la consulta. Al crear la
+-- tabla por SQL crudo (en vez de la UI de Supabase, que lo hace automatico)
+-- hay que otorgarlo a mano.
+grant select, insert, update, delete on public.kv_store to anon;
+grant select, insert, update, delete on public.kv_store to authenticated;
