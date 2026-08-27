@@ -18,6 +18,8 @@ import {
 
 export default function ReportesTab({ vehicles, now }) {
   const [periodo, setPeriodo] = useState("hoy"); // hoy | semana | quincena | mes
+  const [fechaDesde, setFechaDesde] = useState(dayKey(now - 29 * 24 * 3600 * 1000));
+  const [fechaHasta, setFechaHasta] = useState(dayKey(now));
 
   const cortes = useMemo(() => computeCortes(vehicles, now), [vehicles, now]);
 
@@ -28,20 +30,50 @@ export default function ReportesTab({ vehicles, now }) {
   }, [vehicles, periodo, now]);
 
   const xKey = periodo === "hoy" ? "hora" : "fecha";
+  const scrollable = periodo === "hoy";
+  const chartWidth = Math.max(chartData.length * 44, 320);
 
   const exportarReporte = () => {
+    const desdeTs = startOfDay(new Date(`${fechaDesde}T00:00:00`));
+    const hastaTsRaw = startOfDay(new Date(`${fechaHasta}T00:00:00`));
+    const hastaTs = Math.max(hastaTsRaw, desdeTs) + 24 * 3600 * 1000 - 1;
+
     const resumenRows = [
       { Período: "Hoy", Recaudado: cortes.hoy },
       { Período: "Últimos 7 días", Recaudado: cortes.semanal },
       { Período: "Últimos 15 días", Recaudado: cortes.quincenal },
       { Período: "Últimos 30 días", Recaudado: cortes.mensual },
     ];
-    const detalleRows = chartData.map((d) =>
-      periodo === "hoy"
-        ? { Hora: d.hora, Ingresos: d.ingresos, Egresos: d.egresos, Ocupación: d.ocupacion }
-        : { Fecha: d.fecha, Ingresos: d.ingresos, Egresos: d.egresos, Recaudado: d.recaudado, "Ocupación pico": d.picoOcupacion }
-    );
-    downloadXLSX(`reporte-estacionamiento-${dayKey(now)}.xlsx`, { Resumen: resumenRows, Detalle: detalleRows });
+
+    const ingresosRows = vehicles
+      .filter((v) => v.horaIngreso >= desdeTs && v.horaIngreso <= hastaTs)
+      .sort((a, b) => a.horaIngreso - b.horaIngreso)
+      .map((v) => ({
+        Patente: v.patente,
+        Tipo: TIPOS.find((t) => t.id === v.tipo)?.label || v.tipo,
+        Fecha: fmtDateShort(v.horaIngreso),
+        Hora: fmtTime(v.horaIngreso),
+      }));
+
+    const egresosRows = vehicles
+      .filter((v) => v.horaSalida && v.horaSalida >= desdeTs && v.horaSalida <= hastaTs)
+      .sort((a, b) => a.horaSalida - b.horaSalida)
+      .map((v) => ({
+        Patente: v.patente,
+        Tipo: TIPOS.find((t) => t.id === v.tipo)?.label || v.tipo,
+        "Fecha ingreso": fmtDateShort(v.horaIngreso),
+        "Hora ingreso": fmtTime(v.horaIngreso),
+        "Fecha salida": fmtDateShort(v.horaSalida),
+        "Hora salida": fmtTime(v.horaSalida),
+        "Duración": fmtDur((v.horaSalida - v.horaIngreso) / 60000),
+        Monto: v.monto ?? "",
+      }));
+
+    downloadXLSX(`reporte-estacionamiento-${fechaDesde}_a_${fechaHasta}.xlsx`, {
+      Resumen: resumenRows,
+      Ingresos: ingresosRows,
+      "Egresos y pagos": egresosRows,
+    });
   };
 
   return (
@@ -55,13 +87,40 @@ export default function ReportesTab({ vehicles, now }) {
         <CorteCard label="Últimos 30 días" value={cortes.mensual} />
       </div>
 
-      <button
-        onClick={exportarReporte}
-        className="w-full mb-4 py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
-      >
-        <Download size={14} /> Exportar resumen y detalle (.xlsx)
-      </button>
+      <div className="rounded-xl p-3 mb-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <p style={{ color: "var(--muted)" }} className="text-xs font-semibold mb-2">Exportar registros por rango de fecha</p>
+        <div className="flex gap-2 mb-2.5">
+          <div className="flex-1">
+            <label style={{ color: "var(--muted)" }} className="text-[10px] block mb-1">Desde</label>
+            <input
+              type="date"
+              value={fechaDesde}
+              max={fechaHasta}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg outline-none text-xs"
+              style={{ background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text)" }}
+            />
+          </div>
+          <div className="flex-1">
+            <label style={{ color: "var(--muted)" }} className="text-[10px] block mb-1">Hasta</label>
+            <input
+              type="date"
+              value={fechaHasta}
+              min={fechaDesde}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg outline-none text-xs"
+              style={{ background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text)" }}
+            />
+          </div>
+        </div>
+        <button
+          onClick={exportarReporte}
+          className="w-full py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+          style={{ background: "var(--accent)", border: "1px solid var(--accent)", color: "#1A1300" }}
+        >
+          <Download size={14} /> Exportar ingresos, egresos y pagos (.xlsx)
+        </button>
+      </div>
 
       <div className="flex gap-1.5 mb-4">
         {[
@@ -86,29 +145,37 @@ export default function ReportesTab({ vehicles, now }) {
       </div>
 
       <ChartCard title="Ingresos y egresos">
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--text)" }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="ingresos" name="Ingresos" fill="var(--accent2)" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="egresos" name="Egresos" fill="var(--accent)" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className={scrollable ? "overflow-x-auto" : ""}>
+          <div style={{ width: scrollable ? chartWidth : "100%" }}>
+            <ResponsiveContainer width={scrollable ? chartWidth : "100%"} height={200}>
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--text)" }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="ingresos" name="Ingresos" fill="var(--accent2)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="egresos" name="Egresos" fill="var(--accent)" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </ChartCard>
 
       <ChartCard title={periodo === "hoy" ? "Ocupación por hora" : "Ocupación pico por día"}>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--text)" }} />
-            <Bar dataKey={periodo === "hoy" ? "ocupacion" : "picoOcupacion"} name="Ocupación" fill="#5B8DEF" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className={scrollable ? "overflow-x-auto" : ""}>
+          <div style={{ width: scrollable ? chartWidth : "100%" }}>
+            <ResponsiveContainer width={scrollable ? chartWidth : "100%"} height={180}>
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--text)" }} />
+                <Bar dataKey={periodo === "hoy" ? "ocupacion" : "picoOcupacion"} name="Ocupación" fill="#5B8DEF" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </ChartCard>
 
       <HistorialSection vehicles={vehicles} now={now} />
@@ -226,7 +293,7 @@ function computeCortes(vehicles, now) {
 function movimientosPorHora(vehicles, now) {
   const dayStart = startOfDay(now);
   const horaActual = new Date(now).getHours();
-  const arr = Array.from({ length: horaActual + 1 }, (_, h) => ({ hora: `${h}h`, ingresos: 0, egresos: 0, ocupacion: 0 }));
+  const arr = Array.from({ length: 24 }, (_, h) => ({ hora: `${h}h`, ingresos: 0, egresos: 0, ocupacion: 0 }));
   vehicles.forEach((v) => {
     if (v.horaIngreso >= dayStart) {
       const h = new Date(v.horaIngreso).getHours();

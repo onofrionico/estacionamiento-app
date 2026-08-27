@@ -2,6 +2,23 @@ services:
   - type: web
     name: estacionamiento-app
     runtime: static
+    branch: master
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+
+  - type: web
+    name: estacionamiento-app-staging
+    runtime: static
+    branch: develop
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     routes:
