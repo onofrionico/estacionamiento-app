@@ -12,3 +12,5 @@ create policy "allow anon read/write kv_store"
   on kv_store for all
   using (true)
   with check (true);
+
+grant select, insert, update, delete on public.kv_store to anon, authenticated;

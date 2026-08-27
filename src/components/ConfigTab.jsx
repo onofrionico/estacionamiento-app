@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Settings2, Check, RotateCcw, Trash2 } from "lucide-react";
+import { TIPOS } from "../constants";
 import { SectionTitle, ConfigField, RateField } from "./ui";
 
 /* ------------------------------------------------------------------ */
@@ -8,12 +9,22 @@ import { SectionTitle, ConfigField, RateField } from "./ui";
 
 export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo }) {
   const [local, setLocal] = useState(config);
+  const [tipoActivo, setTipoActivo] = useState(TIPOS[0].id);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmBorrar, setConfirmBorrar] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const setRate = (key, val) => setLocal({ ...local, rates: { ...local.rates, [key]: Number(val) || 0 } });
+  const setRate = (key, val) =>
+    setLocal({
+      ...local,
+      rates: {
+        ...local.rates,
+        [tipoActivo]: { ...local.rates[tipoActivo], [key]: Number(val) || 0 },
+      },
+    });
   const setUmbral = (key, val) => setLocal({ ...local, umbrales: { ...local.umbrales, [key]: Number(val) || 0 } });
+
+  const rates = local.rates[tipoActivo];
 
   const save = () => {
     onSave(local);
@@ -44,14 +55,34 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo })
         </ConfigField>
 
         <div>
-          <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-2">Tarifas</p>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-2">Tarifas por tipo de vehículo</p>
+
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {TIPOS.map(({ id, label, Icon }) => (
+              <button
+                type="button"
+                key={id}
+                onClick={() => setTipoActivo(id)}
+                className="flex flex-col items-center gap-1.5 py-2.5 rounded-xl transition"
+                style={{
+                  background: tipoActivo === id ? "var(--accent)" : "var(--surface)",
+                  color: tipoActivo === id ? "#1A1300" : "var(--text)",
+                  border: `1px solid ${tipoActivo === id ? "var(--accent)" : "var(--border)"}`,
+                }}
+              >
+                <Icon size={18} />
+                <span className="text-xs font-medium">{label}</span>
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-2 gap-2.5">
-            <RateField label="Media hora" value={local.rates.mediaHora} onChange={(v) => setRate("mediaHora", v)} />
-            <RateField label="Hora" value={local.rates.hora} onChange={(v) => setRate("hora", v)} />
-            <RateField label="Media estadía" value={local.rates.mediaEstadia} onChange={(v) => setRate("mediaEstadia", v)} />
-            <RateField label="Estadía completa" value={local.rates.estadiaCompleta} onChange={(v) => setRate("estadiaCompleta", v)} />
-            <RateField label="Semanal" value={local.rates.semanal} onChange={(v) => setRate("semanal", v)} />
-            <RateField label="Mensual" value={local.rates.mensual} onChange={(v) => setRate("mensual", v)} />
+            <RateField label="Media hora" value={rates.mediaHora} onChange={(v) => setRate("mediaHora", v)} />
+            <RateField label="Hora" value={rates.hora} onChange={(v) => setRate("hora", v)} />
+            <RateField label="Media estadía" value={rates.mediaEstadia} onChange={(v) => setRate("mediaEstadia", v)} />
+            <RateField label="Estadía completa" value={rates.estadiaCompleta} onChange={(v) => setRate("estadiaCompleta", v)} />
+            <RateField label="Semanal" value={rates.semanal} onChange={(v) => setRate("semanal", v)} />
+            <RateField label="Mensual" value={rates.mensual} onChange={(v) => setRate("mensual", v)} />
           </div>
         </div>
 

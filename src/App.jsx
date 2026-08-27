@@ -3,7 +3,7 @@ import {
   AlertTriangle, ParkingSquare
 } from "lucide-react";
 import { storage } from "./storage";
-import { STORAGE_KEY, DEFAULT_CONFIG, DEFAULT_DATA } from "./constants";
+import { STORAGE_KEY, DEFAULT_CONFIG, DEFAULT_DATA, TIPOS } from "./constants";
 import {
   fmtMoney, calcularMonto,
 } from "./lib/format";
@@ -19,6 +19,18 @@ const ConfigTab = lazy(() => import("./components/ConfigTab"));
 /* ------------------------------------------------------------------ */
 /* App                                                                  */
 /* ------------------------------------------------------------------ */
+
+/** Combina las tarifas guardadas con las por defecto, migrando el formato
+ * viejo (una única tarifa para todos los tipos) al formato por tipo. */
+function mergeRates(savedRates) {
+  const raw = savedRates || {};
+  const isLegacyFlat = typeof raw.mediaHora === "number";
+  return TIPOS.reduce((acc, { id }) => {
+    const override = isLegacyFlat ? raw : raw[id] || {};
+    acc[id] = { ...DEFAULT_CONFIG.rates[id], ...override };
+    return acc;
+  }, {});
+}
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -36,7 +48,7 @@ export default function App() {
         if (res && res.value) {
           const parsed = JSON.parse(res.value);
           setData({
-            config: { ...DEFAULT_CONFIG, ...parsed.config, rates: { ...DEFAULT_CONFIG.rates, ...(parsed.config?.rates || {}) }, umbrales: { ...DEFAULT_CONFIG.umbrales, ...(parsed.config?.umbrales || {}) } },
+            config: { ...DEFAULT_CONFIG, ...parsed.config, rates: mergeRates(parsed.config?.rates), umbrales: { ...DEFAULT_CONFIG.umbrales, ...(parsed.config?.umbrales || {}) } },
             vehicles: parsed.vehicles || [],
           });
         } else {
@@ -112,7 +124,8 @@ export default function App() {
     const v = data.vehicles.find((x) => x.id === id);
     if (!v) return;
     const minutos = (Date.now() - v.horaIngreso) / 60000;
-    const monto = calcularMonto(minutos, data.config.rates, data.config.umbrales);
+    const rates = data.config.rates[v.tipo] || data.config.rates.auto;
+    const monto = calcularMonto(minutos, rates, data.config.umbrales);
     const updated = data.vehicles.map((x) =>
       x.id === id ? { ...x, horaSalida: Date.now(), monto, estado: "afuera" } : x
     );

@@ -40,7 +40,8 @@ export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSal
             .sort((a, b) => a.horaIngreso - b.horaIngreso)
             .map((v) => {
               const minutos = (now - v.horaIngreso) / 60000;
-              const monto = calcularMonto(minutos, rates, umbrales);
+              const vehicleRates = rates[v.tipo] || rates.auto;
+              const monto = calcularMonto(minutos, vehicleRates, umbrales);
               const Icon = TIPOS.find((t) => t.id === v.tipo)?.Icon || Car;
               const confirming = confirmId === v.id;
               return (
