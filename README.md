@@ -49,19 +49,17 @@ Para levantar tu propio backend:
 
 1. **Crear un proyecto** en [supabase.com](https://supabase.com) (tier free
    alcanza).
-2. **Correr el SQL** de `supabase/schema.sql` en el SQL editor del proyecto
-   (Supabase → SQL Editor → pegar el contenido del archivo → Run). Crea la
-   tabla `kv_store` con Row Level Security habilitado y una policy permisiva
-   de lectura/escritura.
-
-   > **Nota de seguridad:** la policy es `using (true) with check (true)`, o
-   > sea que cualquiera que tenga la anon key (que viaja en el bundle del
-   > cliente, es pública por diseño) puede leer, escribir y borrar cualquier
-   > fila de `kv_store` sin autenticarse. Es aceptable para un equipo chico
-   > y de confianza usando la app internamente, pero antes de exponerla a
-   > más gente conviene restringir la policy (por ejemplo, scoping por
-   > usuario autenticado con Supabase Auth).
-3. **Copiar las credenciales**: `.env.example` a `.env`
+2. **Habilitar el provider de Email** en Authentication → Providers (viene
+   habilitado por defecto en proyectos nuevos).
+3. **Correr el SQL** de `supabase/schema.sql` en el SQL editor del proyecto
+   (Supabase → SQL Editor → pegar el contenido del archivo → Run). Crea:
+   - la tabla `kv_store` (datos de la app), con RLS restringido a usuarios
+     autenticados (`auth.role() = 'authenticated'`);
+   - la tabla `profiles` (id, email, role), con un trigger que crea
+     automáticamente el perfil de cada usuario nuevo con `role = 'usuario'`,
+     y policies de RLS para que cada quien vea su propio perfil (los admin
+     ven y editan el rol de todos).
+4. **Copiar las credenciales**: `.env.example` a `.env`
 
    ```bash
    cp .env.example .env
@@ -75,13 +73,47 @@ Para levantar tu propio backend:
    VITE_SUPABASE_ANON_KEY=<anon public key>
    ```
 
-4. **Correr la app**:
+5. **Correr la app**:
 
    ```bash
    npm run dev
    ```
 
 `.env` está en `.gitignore` — las claves nunca se suben al repo.
+
+### Roles y permisos
+
+La app requiere iniciar sesión (Supabase Auth, email/contraseña). Hay dos
+roles:
+
+- **usuario**: acceso a Entrada, Salida y Estado.
+- **admin**: acceso total, incluyendo Reportes y Config (donde además puede
+  gestionar el rol de otros usuarios).
+
+No hay alta de cuentas autogestionada desde la app (evita exponer una
+service role key en el cliente). Para dar de alta a alguien:
+
+1. Supabase → Authentication → Users → **Add user** (con email y
+   contraseña, o mandale un invite link).
+2. Al iniciar sesión por primera vez, el trigger crea su fila en
+   `profiles` con `role = 'usuario'`.
+3. Para que sea admin, otro admin lo cambia desde Config → Usuarios y
+   roles, o corriendo en el SQL editor:
+
+   ```sql
+   update public.profiles set role = 'admin' where email = 'la persona@ejemplo.com';
+   ```
+
+   (el primer admin del proyecto se tiene que promover así, a mano, la
+   primera vez).
+
+> **Limitación conocida:** la restricción por rol es a nivel de interfaz
+> (qué pestañas se muestran) y de la tabla `profiles`; la tabla `kv_store`
+> sigue guardando todo (vehículos + configuración) como un único blob JSON
+> por fila, así que cualquier usuario autenticado técnicamente puede leer
+> ese blob completo aunque la UI no le muestre Reportes/Config. Separar
+> `kv_store` en tablas por dominio con RLS granular es un trabajo aparte si
+> se necesita ese nivel de aislamiento.
 
 > **Limitación conocida (concurrencia):** la app lee y escribe todo el blob
 > de datos como un único JSON, sin suscripción realtime ni resolución de

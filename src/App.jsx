@@ -3,12 +3,15 @@ import {
   AlertTriangle, ParkingSquare
 } from "lucide-react";
 import { storage } from "./storage";
+import { supabase } from "./supabaseClient";
 import { STORAGE_KEY, DEFAULT_CONFIG, DEFAULT_DATA, TIPOS } from "./constants";
 import {
   fmtMoney, calcularMonto,
 } from "./lib/format";
+import { signOut, fetchProfile, TABS_POR_ROL, ROLES } from "./lib/auth";
 import RootStyles from "./components/RootStyles";
 import { TopBar, BottomNav } from "./components/Nav";
+import LoginScreen from "./components/LoginScreen";
 
 const EntradaTab = lazy(() => import("./components/EntradaTab"));
 const SalidaTab = lazy(() => import("./components/SalidaTab"));
@@ -32,7 +35,23 @@ function mergeRates(savedRates) {
   }, {});
 }
 
+function LoadingScreen({ text }) {
+  return (
+    <div style={{ background: "var(--bg)" }} className="min-h-screen flex items-center justify-center">
+      <RootStyles />
+      <div className="text-center">
+        <ParkingSquare className="animate-pulse mx-auto mb-3" size={40} style={{ color: "var(--accent)" }} />
+        <p style={{ color: "var(--muted)" }} className="text-sm">{text}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [session, setSession] = useState(undefined); // undefined = todavía no se chequeó
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
@@ -42,6 +61,32 @@ export default function App() {
   const toastTimer = useRef(null);
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session === undefined) return;
+    if (!session) {
+      setProfile(null);
+      setProfileLoading(false);
+      return;
+    }
+    setProfileLoading(true);
+    fetchProfile(session.user.id)
+      .then(setProfile)
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoading(false));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     (async () => {
       try {
         const res = await storage.get(STORAGE_KEY);
@@ -60,7 +105,7 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
@@ -83,17 +128,36 @@ export default function App() {
     }
   }, []);
 
-  if (loading || !data) {
+  if (session === undefined || (session && profileLoading)) {
+    return <LoadingScreen text="Cargando…" />;
+  }
+
+  if (!session) {
+    return <LoginScreen />;
+  }
+
+  if (!profile) {
     return (
-      <div style={{ background: "var(--bg)" }} className="min-h-screen flex items-center justify-center">
+      <div style={{ background: "var(--bg)" }} className="min-h-screen flex items-center justify-center px-6">
         <RootStyles />
         <div className="text-center">
-          <ParkingSquare className="animate-pulse mx-auto mb-3" size={40} style={{ color: "var(--accent)" }} />
-          <p style={{ color: "var(--muted)" }} className="text-sm">Cargando estacionamiento…</p>
+          <AlertTriangle className="mx-auto mb-3" size={32} style={{ color: "var(--danger)" }} />
+          <p className="text-sm mb-4">No se encontró tu perfil de usuario. Pedile a un administrador que revise tu cuenta.</p>
+          <button onClick={() => signOut()} className="px-4 py-2 rounded-lg text-xs font-semibold" style={{ background: "var(--surface2)", color: "var(--text)" }}>
+            Cerrar sesión
+          </button>
         </div>
       </div>
     );
   }
+
+  if (loading || !data) {
+    return <LoadingScreen text="Cargando estacionamiento…" />;
+  }
+
+  const role = profile.role === ROLES.ADMIN ? ROLES.ADMIN : ROLES.USUARIO;
+  const allowedTabs = TABS_POR_ROL[role];
+  const activeTab = allowedTabs.includes(tab) ? tab : allowedTabs[0];
 
   const vehiculosDentro = data.vehicles.filter((v) => v.estado === "dentro");
   const ocupados = vehiculosDentro.length;
@@ -148,7 +212,14 @@ export default function App() {
   return (
     <div style={{ background: "var(--bg)", color: "var(--text)" }} className="min-h-screen flex flex-col font-sans">
       <RootStyles />
-      <TopBar config={data.config} ocupados={ocupados} disponibles={disponibles} ocupacionPct={ocupacionPct} />
+      <TopBar
+        config={data.config}
+        ocupados={ocupados}
+        disponibles={disponibles}
+        ocupacionPct={ocupacionPct}
+        userEmail={profile.email}
+        onLogout={signOut}
+      />
 
       <main className="flex-1 overflow-y-auto pb-24 px-4 pt-4 max-w-md w-full mx-auto">
         <Suspense
@@ -158,10 +229,10 @@ export default function App() {
             </div>
           }
         >
-          {tab === "entrada" && (
+          {activeTab === "entrada" && (
             <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} />
           )}
-          {tab === "salida" && (
+          {activeTab === "salida" && (
             <SalidaTab
               vehiculosDentro={vehiculosDentro}
               now={now}
@@ -170,7 +241,7 @@ export default function App() {
               onSalida={registrarSalida}
             />
           )}
-          {tab === "estado" && (
+          {activeTab === "estado" && (
             <EstadoTab
               vehiculosDentro={vehiculosDentro}
               now={now}
@@ -178,21 +249,22 @@ export default function App() {
               disponibles={disponibles}
             />
           )}
-          {tab === "reportes" && (
+          {activeTab === "reportes" && (
             <ReportesTab vehicles={data.vehicles} now={now} />
           )}
-          {tab === "config" && (
+          {activeTab === "config" && (
             <ConfigTab
               config={data.config}
               onSave={updateConfig}
               onResetDemo={resetDemo}
               onBorrarTodo={borrarTodo}
+              currentUserId={profile.id}
             />
           )}
         </Suspense>
       </main>
 
-      <BottomNav tab={tab} setTab={setTab} disponibles={disponibles} />
+      <BottomNav tab={activeTab} setTab={setTab} disponibles={disponibles} role={role} />
 
       {toast && (
         <div

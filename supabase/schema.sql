@@ -8,9 +8,69 @@ create table kv_store (
 
 alter table kv_store enable row level security;
 
-create policy "allow anon read/write kv_store"
-  on kv_store for all
-  using (true)
-  with check (true);
+grant select, insert, update, delete on public.kv_store to authenticated;
+revoke all on public.kv_store from anon;
 
-grant select, insert, update, delete on public.kv_store to anon, authenticated;
+drop policy if exists "allow anon read/write kv_store" on kv_store;
+
+create policy "allow authenticated read/write kv_store"
+  on kv_store for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+-- ---------------------------------------------------------------------
+-- Roles y permisos
+-- ---------------------------------------------------------------------
+-- Ejecutar esta sección una sola vez (agregada en una fase posterior a la
+-- creación inicial de kv_store, ver arriba). Requiere que el proveedor de
+-- autenticación "Email" esté habilitado en Authentication > Providers.
+--
+-- Cada fila de auth.users obtiene automáticamente una fila en
+-- public.profiles con role='usuario' (via trigger). Para promover a alguien
+-- a administrador, correr a mano:
+--   update public.profiles set role = 'admin' where email = 'tu-mail@ejemplo.com';
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  email text not null,
+  role text not null default 'usuario' check (role in ('admin', 'usuario')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+drop policy if exists "profiles: select own or admin" on public.profiles;
+create policy "profiles: select own or admin"
+  on public.profiles for select
+  using (
+    id = auth.uid()
+    or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+  );
+
+drop policy if exists "profiles: admin updates role" on public.profiles;
+create policy "profiles: admin updates role"
+  on public.profiles for update
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+
+grant select, update on public.profiles to authenticated;
+
+-- Crea el perfil automáticamente cuando se registra un usuario nuevo
+-- (signup o alta manual desde Authentication > Users en el dashboard).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email)
+  values (new.id, new.email)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();

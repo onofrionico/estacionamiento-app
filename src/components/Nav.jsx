@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { LogIn, LogOut, Gauge, BarChart3, Settings2 } from "lucide-react";
+import { LogIn, LogOut, Gauge, BarChart3, Settings2, Power } from "lucide-react";
+import { TABS_POR_ROL } from "../lib/auth";
 
 /* ------------------------------------------------------------------ */
 /* Top bar + bottom nav                                                */
 /* ------------------------------------------------------------------ */
 
-export function TopBar({ config, ocupados, disponibles, ocupacionPct }) {
+export function TopBar({ config, ocupados, disponibles, ocupacionPct, userEmail, onLogout }) {
   const [clock, setClock] = useState(new Date());
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000 * 30);
@@ -42,25 +43,39 @@ export function TopBar({ config, ocupados, disponibles, ocupacionPct }) {
             }}
           />
         </div>
+        {userEmail && (
+          <div className="mt-3 flex items-center justify-between">
+            <p style={{ color: "var(--muted)" }} className="text-[11px] truncate">{userEmail}</p>
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1 text-[11px] font-medium"
+              style={{ color: "var(--muted)" }}
+            >
+              <Power size={12} /> Salir
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );
 }
 
-export function BottomNav({ tab, setTab, disponibles }) {
-  const items = [
+export function BottomNav({ tab, setTab, disponibles, role }) {
+  const allItems = [
     { id: "entrada", label: "Entrada", Icon: LogIn },
     { id: "salida", label: "Salida", Icon: LogOut },
     { id: "estado", label: "Estado", Icon: Gauge },
     { id: "reportes", label: "Reportes", Icon: BarChart3 },
     { id: "config", label: "Config", Icon: Settings2 },
   ];
+  const allowed = TABS_POR_ROL[role] || TABS_POR_ROL.usuario;
+  const items = allItems.filter((i) => allowed.includes(i.id));
   return (
     <nav
       style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}
       className="fixed bottom-0 left-0 right-0 z-40"
     >
-      <div className="max-w-md mx-auto grid grid-cols-5">
+      <div className="max-w-md mx-auto grid" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map(({ id, label, Icon }) => {
           const active = tab === id;
           return (
