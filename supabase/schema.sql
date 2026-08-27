@@ -12,6 +12,7 @@ grant select, insert, update, delete on public.kv_store to authenticated;
 revoke all on public.kv_store from anon;
 
 drop policy if exists "allow anon read/write kv_store" on kv_store;
+drop policy if exists "allow authenticated read/write kv_store" on kv_store;
 
 create policy "allow authenticated read/write kv_store"
   on kv_store for all
