@@ -1,6 +1,6 @@
 -- Ejecutar una sola vez en el SQL editor de Supabase al crear un nuevo proyecto (este repo no tiene un runner de migraciones automatizado). Ver docs/superpowers/plans/2026-08-21-mejoras-plataforma.md, Track C, Task C1.
 
-create table kv_store (
+create table if not exists kv_store (
   key text primary key,
   value text not null,
   updated_at timestamptz not null default now()
@@ -39,19 +39,34 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+-- Función helper "security definer": corre con privilegios del dueño
+-- (postgres), que no está sujeto a RLS, así que evita la recursión infinita
+-- que se produce si una policy de profiles vuelve a consultar profiles
+-- directamente (error 42P17).
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+grant execute on function public.is_admin() to authenticated;
+
 drop policy if exists "profiles: select own or admin" on public.profiles;
 create policy "profiles: select own or admin"
   on public.profiles for select
-  using (
-    id = auth.uid()
-    or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
-  );
+  using (id = auth.uid() or public.is_admin());
 
 drop policy if exists "profiles: admin updates role" on public.profiles;
 create policy "profiles: admin updates role"
   on public.profiles for update
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'))
-  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.is_admin())
+  with check (public.is_admin());
 
 grant select, update on public.profiles to authenticated;
 
