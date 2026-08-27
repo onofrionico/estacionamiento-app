@@ -2,12 +2,13 @@ import React, { useState } from "react";
 import { Settings2, Check, RotateCcw, Trash2 } from "lucide-react";
 import { TIPOS } from "../constants";
 import { SectionTitle, ConfigField, RateField } from "./ui";
+import UserManagement from "./UserManagement";
 
 /* ------------------------------------------------------------------ */
 /* Config                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo }) {
+export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, currentUserId }) {
   const [local, setLocal] = useState(config);
   const [tipoActivo, setTipoActivo] = useState(TIPOS[0].id);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -131,6 +132,8 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo })
             </button>
           )}
         </div>
+
+        <UserManagement currentUserId={currentUserId} />
       </div>
     </div>
   );
