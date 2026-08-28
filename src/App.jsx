@@ -109,7 +109,7 @@ export default function App() {
   }, [session?.user?.id]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || loading) return;
     const unsubscribe = storage.subscribeToChanges({
       onVehicleChange: ({ eventType, vehicle }) => {
         setVehicles((prev) => {
@@ -126,7 +126,7 @@ export default function App() {
       onConfigChange: (configRow) => setConfig(mergeConfig(configRow)),
     });
     return unsubscribe;
-  }, [session?.user?.id]);
+  }, [session?.user?.id, loading]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
