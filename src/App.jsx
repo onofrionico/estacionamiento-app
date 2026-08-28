@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { storage } from "./storage";
 import { supabase } from "./supabaseClient";
-import { STORAGE_KEY, DEFAULT_CONFIG, DEFAULT_DATA, TIPOS } from "./constants";
+import { DEFAULT_CONFIG, TIPOS } from "./constants";
 import {
   fmtMoney, calcularMonto,
 } from "./lib/format";
@@ -19,20 +19,17 @@ const EstadoTab = lazy(() => import("./components/EstadoTab"));
 const ReportesTab = lazy(() => import("./components/ReportesTab"));
 const ConfigTab = lazy(() => import("./components/ConfigTab"));
 
-/* ------------------------------------------------------------------ */
-/* App                                                                  */
-/* ------------------------------------------------------------------ */
-
-/** Combina las tarifas guardadas con las por defecto, migrando el formato
- * viejo (una única tarifa para todos los tipos) al formato por tipo. */
-function mergeRates(savedRates) {
-  const raw = savedRates || {};
-  const isLegacyFlat = typeof raw.mediaHora === "number";
-  return TIPOS.reduce((acc, { id }) => {
-    const override = isLegacyFlat ? raw : raw[id] || {};
-    acc[id] = { ...DEFAULT_CONFIG.rates[id], ...override };
-    return acc;
-  }, {});
+/** Combina la config guardada con los defaults, tarifa por tipo incluida. */
+function mergeConfig(config) {
+  return {
+    ...DEFAULT_CONFIG,
+    ...config,
+    rates: TIPOS.reduce((acc, { id }) => {
+      acc[id] = { ...DEFAULT_CONFIG.rates[id], ...(config?.rates?.[id] || {}) };
+      return acc;
+    }, {}),
+    umbrales: { ...DEFAULT_CONFIG.umbrales, ...(config?.umbrales || {}) },
+  };
 }
 
 function LoadingScreen({ text }) {
@@ -52,7 +49,8 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
 
-  const [data, setData] = useState(null);
+  const [vehicles, setVehicles] = useState([]);
+  const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
   const [tab, setTab] = useState("entrada");
@@ -82,30 +80,53 @@ export default function App() {
 
   useEffect(() => {
     if (!session) {
-      setData(null);
+      setVehicles([]);
+      setConfig(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     (async () => {
       try {
-        const res = await storage.get(STORAGE_KEY);
-        if (res && res.value) {
-          const parsed = JSON.parse(res.value);
-          setData({
-            config: { ...DEFAULT_CONFIG, ...parsed.config, rates: mergeRates(parsed.config?.rates), umbrales: { ...DEFAULT_CONFIG.umbrales, ...(parsed.config?.umbrales || {}) } },
-            vehicles: parsed.vehicles || [],
-          });
+        const [vehiclesRes, configRes] = await Promise.all([
+          storage.getVehicles(),
+          storage.getConfig(),
+        ]);
+        setVehicles(vehiclesRes);
+        if (configRes) {
+          setConfig(mergeConfig(configRes));
         } else {
-          setData(DEFAULT_DATA);
+          setConfig(DEFAULT_CONFIG);
+          await storage.setConfig(DEFAULT_CONFIG);
         }
       } catch (e) {
-        setData(DEFAULT_DATA);
+        setVehicles([]);
+        setConfig(DEFAULT_CONFIG);
       } finally {
         setLoading(false);
       }
     })();
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (!session || loading) return;
+    const unsubscribe = storage.subscribeToChanges({
+      onVehicleChange: ({ eventType, vehicle }) => {
+        setVehicles((prev) => {
+          if (eventType === "DELETE") {
+            return prev.filter((v) => v.id !== vehicle.id);
+          }
+          const idx = prev.findIndex((v) => v.id === vehicle.id);
+          if (idx === -1) return [vehicle, ...prev];
+          const next = [...prev];
+          next[idx] = vehicle;
+          return next;
+        });
+      },
+      onConfigChange: (configRow) => setConfig(mergeConfig(configRow)),
+    });
+    return unsubscribe;
+  }, [session?.user?.id, loading]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
@@ -116,16 +137,6 @@ export default function App() {
     setToast(msg);
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2200);
-  }, []);
-
-  const persist = useCallback(async (newData) => {
-    setData(newData);
-    try {
-      await storage.set(STORAGE_KEY, JSON.stringify(newData));
-      setSaveError(false);
-    } catch (e) {
-      setSaveError(true);
-    }
   }, []);
 
   if (session === undefined || (session && profileLoading)) {
@@ -151,7 +162,7 @@ export default function App() {
     );
   }
 
-  if (loading || !data) {
+  if (loading || !config) {
     return <LoadingScreen text="Cargando estacionamiento…" />;
   }
 
@@ -159,12 +170,12 @@ export default function App() {
   const allowedTabs = TABS_POR_ROL[role];
   const activeTab = allowedTabs.includes(tab) ? tab : allowedTabs[0];
 
-  const vehiculosDentro = data.vehicles.filter((v) => v.estado === "dentro");
+  const vehiculosDentro = vehicles.filter((v) => v.estado === "dentro");
   const ocupados = vehiculosDentro.length;
-  const disponibles = Math.max(0, data.config.totalEspacios - ocupados);
-  const ocupacionPct = Math.min(100, Math.round((ocupados / Math.max(1, data.config.totalEspacios)) * 100));
+  const disponibles = Math.max(0, config.totalEspacios - ocupados);
+  const ocupacionPct = Math.min(100, Math.round((ocupados / Math.max(1, config.totalEspacios)) * 100));
 
-  const registrarIngreso = (patente, tipo) => {
+  const registrarIngreso = async (patente, tipo) => {
     const pat = patente.trim().toUpperCase();
     if (!pat) return showToast("Ingresá una patente");
     if (vehiculosDentro.some((v) => v.patente === pat)) {
@@ -180,32 +191,72 @@ export default function App() {
       monto: null,
       estado: "dentro",
     };
-    persist({ ...data, vehicles: [vehicle, ...data.vehicles] });
-    showToast(`Ingreso registrado: ${pat}`);
+    setVehicles((prev) => [vehicle, ...prev]);
+    try {
+      await storage.insertVehicle(vehicle);
+      setSaveError(false);
+      showToast(`Ingreso registrado: ${pat}`);
+    } catch (e) {
+      setVehicles((prev) => prev.filter((v) => v.id !== vehicle.id));
+      if (e.code === "DUPLICATE_PATENTE") {
+        showToast(`${pat} ya está registrado dentro`);
+      } else {
+        setSaveError(true);
+      }
+    }
   };
 
-  const registrarSalida = (id) => {
-    const v = data.vehicles.find((x) => x.id === id);
+  const registrarSalida = async (id) => {
+    const v = vehicles.find((x) => x.id === id);
     if (!v) return;
     const minutos = (Date.now() - v.horaIngreso) / 60000;
-    const rates = data.config.rates[v.tipo] || data.config.rates.auto;
-    const monto = calcularMonto(minutos, rates, data.config.umbrales);
-    const updated = data.vehicles.map((x) =>
-      x.id === id ? { ...x, horaSalida: Date.now(), monto, estado: "afuera" } : x
-    );
-    persist({ ...data, vehicles: updated });
-    showToast(`Salida registrada: ${v.patente} · ${fmtMoney(monto)}`);
+    const rates = config.rates[v.tipo] || config.rates.auto;
+    const monto = calcularMonto(minutos, rates, config.umbrales);
+    const patch = { horaSalida: Date.now(), monto, estado: "afuera" };
+    setVehicles((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    try {
+      await storage.updateVehicle(id, patch);
+      setSaveError(false);
+      showToast(`Salida registrada: ${v.patente} · ${fmtMoney(monto)}`);
+    } catch (e) {
+      setVehicles((prev) => prev.map((x) => (x.id === id ? v : x)));
+      setSaveError(true);
+    }
   };
 
-  const updateConfig = (config) => persist({ ...data, config });
+  const updateConfig = async (newConfig) => {
+    const prevConfig = config;
+    setConfig(newConfig);
+    try {
+      await storage.setConfig(newConfig);
+      setSaveError(false);
+    } catch (e) {
+      setConfig(prevConfig);
+      setSaveError(true);
+    }
+  };
 
-  const resetDemo = () => {
-    persist(DEFAULT_DATA);
+  const resetDemo = async () => {
+    setVehicles([]);
+    setConfig(DEFAULT_CONFIG);
+    try {
+      await storage.deleteAllVehicles();
+      await storage.setConfig(DEFAULT_CONFIG);
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
     showToast("Datos reiniciados");
   };
 
-  const borrarTodo = () => {
-    persist({ ...data, vehicles: [] });
+  const borrarTodo = async () => {
+    setVehicles([]);
+    try {
+      await storage.deleteAllVehicles();
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
     showToast("Historial borrado");
   };
 
@@ -213,7 +264,7 @@ export default function App() {
     <div style={{ background: "var(--bg)", color: "var(--text)" }} className="min-h-screen flex flex-col font-sans">
       <RootStyles />
       <TopBar
-        config={data.config}
+        config={config}
         ocupados={ocupados}
         disponibles={disponibles}
         ocupacionPct={ocupacionPct}
@@ -236,8 +287,8 @@ export default function App() {
             <SalidaTab
               vehiculosDentro={vehiculosDentro}
               now={now}
-              rates={data.config.rates}
-              umbrales={data.config.umbrales}
+              rates={config.rates}
+              umbrales={config.umbrales}
               onSalida={registrarSalida}
             />
           )}
@@ -245,16 +296,16 @@ export default function App() {
             <EstadoTab
               vehiculosDentro={vehiculosDentro}
               now={now}
-              totalEspacios={data.config.totalEspacios}
+              totalEspacios={config.totalEspacios}
               disponibles={disponibles}
             />
           )}
           {activeTab === "reportes" && (
-            <ReportesTab vehicles={data.vehicles} now={now} />
+            <ReportesTab vehicles={vehicles} now={now} />
           )}
           {activeTab === "config" && (
             <ConfigTab
-              config={data.config}
+              config={config}
               onSave={updateConfig}
               onResetDemo={resetDemo}
               onBorrarTodo={borrarTodo}

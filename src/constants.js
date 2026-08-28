@@ -1,7 +1,5 @@
 import { Car, Bike, Truck } from "lucide-react";
 
-export const STORAGE_KEY = "estacionamiento-datos";
-
 export const DEFAULT_CONFIG = {
   nombre: "Mi Estacionamiento",
   totalEspacios: 40,
@@ -36,8 +34,6 @@ export const DEFAULT_CONFIG = {
     estadiaCompletaHoras: 24,
   },
 };
-
-export const DEFAULT_DATA = { config: DEFAULT_CONFIG, vehicles: [] };
 
 export const TIPOS = [
   { id: "auto", label: "Auto", Icon: Car },
