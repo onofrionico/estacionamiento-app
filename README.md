@@ -41,13 +41,15 @@ el costo del cliente de Supabase.
 ## Backend (Supabase)
 
 Los datos (autos registrados, configuración de tarifas) se guardan en
-Supabase — ver `src/storage.js` y `src/supabaseClient.js` — en dos tablas:
-`vehicles` (una fila por vehículo) y `config` (una fila con la configuración
-del estacionamiento). Cada acción (registrar ingreso, registrar salida,
-guardar configuración) escribe solo su propia fila, así que dos dispositivos
-usando la app al mismo tiempo no pueden pisarse los datos entre sí. Los
-cambios además se sincronizan en tiempo real entre dispositivos vía Supabase
-Realtime, sin necesidad de recargar la página.
+Supabase — ver `src/storage.js` y `src/supabaseClient.js` — en un esquema
+normalizado (3FN): `vehiculos` (identidad del auto), `visitas` (cada
+estadía), `egresos` (solo existe si el vehículo ya salió — así
+`hora_salida`/`monto` nunca son nulos) y `tarifas_por_tipo` (historial
+completo de tarifas, nunca se sobreescribe). Cada acción (registrar ingreso,
+registrar salida, guardar configuración) escribe solo sus propias filas, así
+que dos dispositivos usando la app al mismo tiempo no pueden pisarse los
+datos entre sí. Los cambios además se sincronizan en tiempo real entre
+dispositivos vía Supabase Realtime, sin necesidad de recargar la página.
 
 Para levantar tu propio backend:
 
@@ -59,20 +61,20 @@ Para levantar tu propio backend:
    - Proyecto nuevo, sin datos previos: `supabase/schema.sql` en el SQL
      editor del proyecto (Supabase → SQL Editor → pegar el contenido del
      archivo → Run). Crea:
-     - las tablas `vehicles` (un vehículo por fila) y `config` (una fila
-       con la configuración del estacionamiento), con RLS restringido a
-       usuarios autenticados (`auth.role() = 'authenticated'`) y Realtime
-       habilitado;
+     - las tablas `tipos_vehiculo`, `vehiculos`, `visitas`, `egresos` y
+       `tarifas_por_tipo` (esquema 3FN, sin columnas nullable en el flujo
+       normal), con RLS restringido a usuarios autenticados
+       (`auth.role() = 'authenticated'`) y Realtime habilitado;
      - la tabla `profiles` (id, email, role), con un trigger que crea
        automáticamente el perfil de cada usuario nuevo con `role = 'usuario'`,
        y policies de RLS para que cada quien vea su propio perfil (los admin
        ven y editan el rol de todos).
-   - Proyecto existente con datos reales en la tabla `kv_store` (esquema
-     anterior) que ya tiene la sección de Roles aplicada: usar
-     `supabase/migrate_kv_to_relational.sql` en su lugar, que crea
-     `vehicles`+`config` y además migra los datos existentes. El archivo
-     incluye instrucciones para verificar la migración antes de borrar
-     `kv_store`.
+   - Proyecto existente con datos reales en las tablas `vehicles`/`config`
+     (esquema anterior) que ya tiene la sección de Roles aplicada: usar
+     `supabase/migrate_vehicles_to_3fn.sql` en su lugar, que crea el esquema
+     3FN y además migra los datos existentes. El archivo incluye
+     instrucciones para verificar la migración antes de borrar las tablas
+     viejas.
 4. **Copiar las credenciales**: `.env.example` a `.env`
 
    ```bash
@@ -156,7 +158,7 @@ levante el sitio como static site.
 ```
 src/
   App.jsx       # toda la lógica y UI de la aplicación
-  storage.js    # capa de persistencia (Supabase, tablas vehicles + config)
+  storage.js    # capa de persistencia (Supabase, esquema 3FN: vehiculos/visitas/egresos/tarifas_por_tipo)
   supabaseClient.js # cliente de Supabase (usa VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
   main.jsx      # punto de entrada de React
   index.css     # Tailwind
