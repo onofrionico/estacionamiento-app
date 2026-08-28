@@ -11,6 +11,10 @@
 import { supabase } from "./supabaseClient";
 
 function flattenVehicle(visita, vehiculo, egreso) {
+  if (!vehiculo) {
+    console.error(`storage: visita ${visita.id} referencia un vehiculo inexistente (${visita.vehiculo_id})`);
+    return null;
+  }
   return {
     id: visita.id,
     patente: vehiculo.patente,
@@ -52,22 +56,30 @@ async function getVehicleById(id) {
 
 export const storage = {
   async getVehicles() {
-    const [{ data: visitas, error: eV }, { data: vehiculos, error: eA }, { data: egresos, error: eE }] =
-      await Promise.all([
-        supabase.from("visitas").select("*").order("created_at", { ascending: false }),
-        supabase.from("vehiculos").select("*"),
-        supabase.from("egresos").select("*"),
-      ]);
+    const { data: visitas, error: eV } = await supabase
+      .from("visitas")
+      .select("*")
+      .order("created_at", { ascending: false });
     if (eV) throw eV;
+
+    const patentes = [...new Set(visitas.map((v) => v.vehiculo_id))];
+    const visitaIds = visitas.map((v) => v.id);
+
+    const [{ data: vehiculos, error: eA }, { data: egresos, error: eE }] = await Promise.all([
+      supabase.from("vehiculos").select("*").in("patente", patentes),
+      supabase.from("egresos").select("*").in("visita_id", visitaIds),
+    ]);
     if (eA) throw eA;
     if (eE) throw eE;
 
     const vehiculoByPatente = new Map(vehiculos.map((v) => [v.patente, v]));
     const egresoByVisitaId = new Map(egresos.map((e) => [e.visita_id, e]));
 
-    return visitas.map((visita) =>
-      flattenVehicle(visita, vehiculoByPatente.get(visita.vehiculo_id), egresoByVisitaId.get(visita.id))
-    );
+    return visitas
+      .map((visita) =>
+        flattenVehicle(visita, vehiculoByPatente.get(visita.vehiculo_id), egresoByVisitaId.get(visita.id))
+      )
+      .filter(Boolean);
   },
 
   async insertVehicle(vehicle) {
@@ -151,20 +163,24 @@ export const storage = {
           onVehicleChange({ eventType: "DELETE", vehicle: { id: payload.old.id } });
           return;
         }
-        getVehicleById(payload.new.id).then((vehicle) =>
-          onVehicleChange({ eventType: payload.eventType, vehicle })
-        );
+        getVehicleById(payload.new.id)
+          .then((vehicle) => {
+            if (vehicle) onVehicleChange({ eventType: payload.eventType, vehicle });
+          })
+          .catch((err) => console.error("storage: error procesando cambio de visita en tiempo real", err));
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "egresos" }, (payload) => {
-        getVehicleById(payload.new.visita_id).then((vehicle) =>
-          onVehicleChange({ eventType: "UPDATE", vehicle })
-        );
+        getVehicleById(payload.new.visita_id)
+          .then((vehicle) => {
+            if (vehicle) onVehicleChange({ eventType: "UPDATE", vehicle });
+          })
+          .catch((err) => console.error("storage: error procesando cambio de egreso en tiempo real", err));
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "config" }, () => {
-        refreshConfig();
+        refreshConfig().catch((err) => console.error("storage: error refrescando config en tiempo real", err));
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "tarifas_por_tipo" }, () => {
-        refreshConfig();
+        refreshConfig().catch((err) => console.error("storage: error refrescando config en tiempo real", err));
       })
       .subscribe();
 
