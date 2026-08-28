@@ -10,6 +10,8 @@
 -- Para proyectos nuevos sin datos previos, usá supabase/schema.sql en vez
 -- de este archivo.
 
+begin;
+
 -- Saca del medio las tablas viejas (mismo nombre que las nuevas de abajo)
 -- sin borrar datos, para poder migrar desde ellas.
 alter table vehicles rename to vehicles_old_3fn;
@@ -168,6 +170,19 @@ insert into visitas (id, vehiculo_id, hora_ingreso, estado, created_at)
 select id, patente, hora_ingreso, estado, created_at
 from vehicles_old_3fn;
 
+do $$
+declare
+  v_count int;
+begin
+  select count(*) into v_count
+  from vehicles_old_3fn
+  where (hora_salida is null) <> (monto is null);
+
+  if v_count > 0 then
+    raise exception 'vehicles_old_3fn tiene % fila(s) con hora_salida/monto parcialmente cargados (uno null, el otro no) — revisar a mano antes de migrar', v_count;
+  end if;
+end $$;
+
 -- Migra egresos: solo para las filas que ya tenían hora_salida/monto.
 insert into egresos (visita_id, hora_salida, monto)
 select id, hora_salida, monto
@@ -176,6 +191,13 @@ where hora_salida is not null and monto is not null;
 
 -- Migra tarifas_por_tipo desde config.rates (jsonb por tipo), con
 -- vigente_desde = now() para toda la tanda migrada.
+-- Asume que config_old_3fn.rates ya está anidado por tipo
+-- ({"auto": {...}, "moto": {...}, "camioneta": {...}}), no en el formato
+-- plano viejo. Si tenés dudas, correr `select rates from config` a mano
+-- antes de migrar y confirmar la forma. Si el formato es el viejo (plano),
+-- este insert va a fallar con un error de jsonb_each_text sobre un valor
+-- escalar (no corrompe nada, hace rollback por estar dentro de la
+-- transacción).
 insert into tarifas_por_tipo (tipo_id, concepto, monto, vigente_desde)
 select t1.tipo_key, t2.concepto_key, t2.concepto_val::numeric, now()
 from config_old_3fn
@@ -186,6 +208,8 @@ cross join lateral jsonb_each_text(t1.tipo_val::jsonb) as t2(concepto_key, conce
 insert into config (id, total_espacios, umbral_media_estadia_horas, umbral_estadia_completa_horas)
 select 1, total_espacios, (umbrales->>'mediaEstadiaHoras')::int, (umbrales->>'estadiaCompletaHoras')::int
 from config_old_3fn;
+
+commit;
 
 -- Verificá antes de seguir:
 --   select count(*) from vehiculos;
