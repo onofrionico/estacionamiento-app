@@ -1,23 +1,66 @@
--- Ejecutar una sola vez en el SQL editor de Supabase al crear un nuevo proyecto (este repo no tiene un runner de migraciones automatizado). Ver docs/superpowers/plans/2026-08-21-mejoras-plataforma.md, Track C, Task C1.
+-- Ejecutar una sola vez en el SQL editor de Supabase al crear un proyecto
+-- nuevo (este repo no tiene un runner de migraciones automatizado). Ver
+-- docs/superpowers/specs/2026-08-28-esquema-relacional-design.md.
+--
+-- Si ya tenías un proyecto con la tabla kv_store (esquema anterior) y datos
+-- reales cargados, NO corras el bloque de vehicles/config de abajo tal
+-- cual para migrar: usá supabase/migrate_kv_to_relational.sql en su lugar,
+-- que crea las mismas tablas y además migra los datos existentes. La
+-- sección de "Roles y permisos" de este archivo es la misma en ambos casos
+-- (si ya la corriste una vez, no hace falta repetirla).
 
-create table if not exists kv_store (
-  key text primary key,
-  value text not null,
-  updated_at timestamptz not null default now()
+create table vehicles (
+  id text primary key,
+  patente text not null,
+  tipo text not null,
+  hora_ingreso timestamptz not null,
+  hora_salida timestamptz,
+  monto numeric,
+  estado text not null check (estado in ('dentro', 'afuera')),
+  created_at timestamptz not null default now()
 );
 
-alter table kv_store enable row level security;
+-- Impide que dos dispositivos registren la misma patente "dentro" a la vez.
+create unique index vehicles_patente_dentro_uk
+  on vehicles (patente) where estado = 'dentro';
 
-grant select, insert, update, delete on public.kv_store to authenticated;
-revoke all on public.kv_store from anon;
+create table config (
+  id int primary key default 1,
+  total_espacios int not null,
+  rates jsonb not null,
+  umbrales jsonb not null,
+  updated_at timestamptz not null default now(),
+  check (id = 1)
+);
 
-drop policy if exists "allow anon read/write kv_store" on kv_store;
-drop policy if exists "allow authenticated read/write kv_store" on kv_store;
+alter table vehicles enable row level security;
+alter table config enable row level security;
 
-create policy "allow authenticated read/write kv_store"
-  on kv_store for all
+grant select, insert, update, delete on public.vehicles to authenticated;
+grant select, insert, update, delete on public.config to authenticated;
+revoke all on public.vehicles from anon;
+revoke all on public.config from anon;
+
+drop policy if exists "allow authenticated read/write vehicles" on vehicles;
+create policy "allow authenticated read/write vehicles"
+  on vehicles for all
   using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
+
+drop policy if exists "allow authenticated read/write config" on config;
+create policy "allow authenticated read/write config"
+  on config for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+-- Habilita eventos de tiempo real (INSERT/UPDATE/DELETE) para que la app
+-- sincronice cambios entre dispositivos sin recargar.
+alter publication supabase_realtime add table vehicles, config;
+
+-- Necesario para que los eventos DELETE de Realtime incluyan la fila
+-- completa (por defecto Postgres solo manda la primary key en el DELETE).
+alter table vehicles replica identity full;
+alter table config replica identity full;
 
 -- ---------------------------------------------------------------------
 -- Roles y permisos
