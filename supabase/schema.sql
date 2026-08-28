@@ -159,7 +159,12 @@ begin
 
   update public.visitas
   set estado = 'afuera'
-  where id = p_visita_id;
+  where id = p_visita_id
+    and estado = 'dentro';
+
+  if not found then
+    raise exception 'visita % no está dentro (ya salió o no existe)', p_visita_id;
+  end if;
 end;
 $$;
 
