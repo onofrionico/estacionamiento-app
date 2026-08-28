@@ -41,9 +41,13 @@ el costo del cliente de Supabase.
 ## Backend (Supabase)
 
 Los datos (autos registrados, configuración de tarifas) se guardan en
-Supabase — ver `src/storage.js` y `src/supabaseClient.js` — así que se
-sincronizan entre todos los dispositivos que usen la app (todos leen y
-escriben la misma fila en la tabla `kv_store`).
+Supabase — ver `src/storage.js` y `src/supabaseClient.js` — en dos tablas:
+`vehicles` (una fila por vehículo) y `config` (una fila con la configuración
+del estacionamiento). Cada acción (registrar ingreso, registrar salida,
+guardar configuración) escribe solo su propia fila, así que dos dispositivos
+usando la app al mismo tiempo no pueden pisarse los datos entre sí. Los
+cambios además se sincronizan en tiempo real entre dispositivos vía Supabase
+Realtime, sin necesidad de recargar la página.
 
 Para levantar tu propio backend:
 
@@ -51,14 +55,24 @@ Para levantar tu propio backend:
    alcanza).
 2. **Habilitar el provider de Email** en Authentication → Providers (viene
    habilitado por defecto en proyectos nuevos).
-3. **Correr el SQL** de `supabase/schema.sql` en el SQL editor del proyecto
-   (Supabase → SQL Editor → pegar el contenido del archivo → Run). Crea:
-   - la tabla `kv_store` (datos de la app), con RLS restringido a usuarios
-     autenticados (`auth.role() = 'authenticated'`);
-   - la tabla `profiles` (id, email, role), con un trigger que crea
-     automáticamente el perfil de cada usuario nuevo con `role = 'usuario'`,
-     y policies de RLS para que cada quien vea su propio perfil (los admin
-     ven y editan el rol de todos).
+3. **Correr el SQL**:
+   - Proyecto nuevo, sin datos previos: `supabase/schema.sql` en el SQL
+     editor del proyecto (Supabase → SQL Editor → pegar el contenido del
+     archivo → Run). Crea:
+     - las tablas `vehicles` (un vehículo por fila) y `config` (una fila
+       con la configuración del estacionamiento), con RLS restringido a
+       usuarios autenticados (`auth.role() = 'authenticated'`) y Realtime
+       habilitado;
+     - la tabla `profiles` (id, email, role), con un trigger que crea
+       automáticamente el perfil de cada usuario nuevo con `role = 'usuario'`,
+       y policies de RLS para que cada quien vea su propio perfil (los admin
+       ven y editan el rol de todos).
+   - Proyecto existente con datos reales en la tabla `kv_store` (esquema
+     anterior) que ya tiene la sección de Roles aplicada: usar
+     `supabase/migrate_kv_to_relational.sql` en su lugar, que crea
+     `vehicles`+`config` y además migra los datos existentes. El archivo
+     incluye instrucciones para verificar la migración antes de borrar
+     `kv_store`.
 4. **Copiar las credenciales**: `.env.example` a `.env`
 
    ```bash
@@ -108,18 +122,12 @@ service role key en el cliente). Para dar de alta a alguien:
    primera vez).
 
 > **Limitación conocida:** la restricción por rol es a nivel de interfaz
-> (qué pestañas se muestran) y de la tabla `profiles`; la tabla `kv_store`
-> sigue guardando todo (vehículos + configuración) como un único blob JSON
-> por fila, así que cualquier usuario autenticado técnicamente puede leer
-> ese blob completo aunque la UI no le muestre Reportes/Config. Separar
-> `kv_store` en tablas por dominio con RLS granular es un trabajo aparte si
-> se necesita ese nivel de aislamiento.
-
-> **Limitación conocida (concurrencia):** la app lee y escribe todo el blob
-> de datos como un único JSON, sin suscripción realtime ni resolución de
-> conflictos. Si dos empleados editan desde dispositivos distintos casi al
-> mismo tiempo, gana el último `write` y se pierden los cambios del otro
-> (last-write-wins). Queda pendiente para un trabajo futuro.
+> (qué pestañas se muestran) y de la tabla `profiles`; las policies RLS de
+> `vehicles`/`config` siguen siendo "cualquier usuario autenticado puede
+> leer/escribir todo", así que un usuario sin acceso a Reportes/Config en
+> la UI técnicamente puede leer esas tablas completas igual. Separar por
+> rol a nivel de RLS (por ejemplo, restringir `config` a solo admins) es un
+> trabajo aparte si se necesita ese nivel de aislamiento.
 
 ## Deploy (Render)
 
@@ -137,16 +145,18 @@ levante el sitio como static site.
    con los mismos valores que usás en `.env` local. En `render.yaml` están
    declaradas como `sync: false`, es decir que no viajan en el archivo — hay
    que cargarlas a mano en el dashboard la primera vez.
-4. Cada push a la rama conectada (por ejemplo `main`) dispara un deploy
-   automático en Render. No hace falta configurar GitHub Actions ni ningún
-   otro paso de CI/CD.
+4. Cada push a la rama conectada dispara un deploy automático en Render. No
+   hace falta configurar GitHub Actions ni ningún otro paso de CI/CD. Ver
+   `CONTRIBUTING.md` para el flujo de ramas: `develop` despliega a staging
+   (`estacionamiento-app-staging`), `master` despliega a producción
+   (`estacionamiento-app`).
 
 ## Estructura
 
 ```
 src/
   App.jsx       # toda la lógica y UI de la aplicación
-  storage.js    # capa de persistencia (hoy: Supabase, tabla kv_store)
+  storage.js    # capa de persistencia (Supabase, tablas vehicles + config)
   supabaseClient.js # cliente de Supabase (usa VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
   main.jsx      # punto de entrada de React
   index.css     # Tailwind
