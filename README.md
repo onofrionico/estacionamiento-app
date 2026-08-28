@@ -124,11 +124,12 @@ service role key en el cliente). Para dar de alta a alguien:
    primera vez).
 
 > **Limitación conocida:** la restricción por rol es a nivel de interfaz
-> (qué pestañas se muestran) y de la tabla `profiles`; las policies RLS de
-> `vehicles`/`config` siguen siendo "cualquier usuario autenticado puede
-> leer/escribir todo", así que un usuario sin acceso a Reportes/Config en
-> la UI técnicamente puede leer esas tablas completas igual. Separar por
-> rol a nivel de RLS (por ejemplo, restringir `config` a solo admins) es un
+> (qué pestañas se muestran) y de la tabla `profiles`; las policies RLS del
+> resto de las tablas (`vehiculos`, `visitas`, `egresos`, `tarifas_por_tipo`,
+> `config`) siguen siendo "cualquier usuario autenticado puede leer/escribir
+> todo", así que un usuario sin acceso a Reportes/Config en la UI
+> técnicamente puede leer esas tablas completas igual. Separar por rol a
+> nivel de RLS (por ejemplo, restringir `config` a solo admins) es un
 > trabajo aparte si se necesita ese nivel de aislamiento.
 
 ## Deploy (Render)
