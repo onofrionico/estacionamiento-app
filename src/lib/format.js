@@ -31,7 +31,7 @@ export function calcularMonto(minutos, rates, umbrales) {
   const { mediaHora, hora, mediaEstadia, estadiaCompleta, semanal, mensual } = rates;
   const mediaEstadiaMin = umbrales.mediaEstadiaHoras * 60;
   const estadiaCompletaMin = umbrales.estadiaCompletaHoras * 60;
-  const toleranciaMin = umbrales.toleranciaMin ?? 0;
+  const toleranciaMin = Math.max(0, umbrales.toleranciaMin ?? 0);
 
   if (minutos <= 30) return mediaHora;
 

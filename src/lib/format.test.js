@@ -49,4 +49,9 @@ describe("calcularMonto con tolerancia", () => {
     expect(calcularMonto(31, rates, umbralesSinTolerancia)).toBe(2500);
     expect(calcularMonto(61, rates, umbralesSinTolerancia)).toBe(2500 + 1500);
   });
+
+  it("un toleranciaMin negativo se trata como 0 (no adelanta los tramos)", () => {
+    const umbralesNegativos = { mediaEstadiaHoras: 6, estadiaCompletaHoras: 24, toleranciaMin: -10 };
+    expect(calcularMonto(31, rates, umbralesNegativos)).toBe(2500);
+  });
 });
