@@ -38,7 +38,7 @@ function configFromRows(configRow, tarifaRows) {
     umbrales: {
       mediaEstadiaHoras: configRow.umbral_media_estadia_horas,
       estadiaCompletaHoras: configRow.umbral_estadia_completa_horas,
-      toleranciaMin: configRow.umbral_tolerancia_min,
+      ...(configRow.umbral_tolerancia_min != null ? { toleranciaMin: configRow.umbral_tolerancia_min } : {}),
     },
   };
 }
