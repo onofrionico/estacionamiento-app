@@ -63,11 +63,17 @@ export function calcularMonto(minutos, rates, umbrales) {
 export function tramoLabel(minutos, umbrales) {
   const mediaEstadiaMin = umbrales.mediaEstadiaHoras * 60;
   const estadiaCompletaMin = umbrales.estadiaCompletaHoras * 60;
+  const toleranciaMin = Math.max(0, umbrales.toleranciaMin ?? 0);
+
   if (minutos <= 30) return "Media hora";
-  if (minutos <= 60) return "Hora";
-  if (minutos <= mediaEstadiaMin) return "Media estadía";
-  if (minutos <= estadiaCompletaMin) return "Estadía completa";
-  const dias = Math.ceil(minutos / (24 * 60));
+
+  const t = minutos - toleranciaMin;
+
+  if (t <= 30) return "Media hora";
+  if (t <= 60) return "Hora";
+  if (t <= mediaEstadiaMin) return "Media estadía";
+  if (t <= estadiaCompletaMin) return "Estadía completa";
+  const dias = Math.ceil(t / (24 * 60));
   if (dias < 7) return `Estadía por día (${dias}d)`;
   if (dias < 30) return `Tarifa semanal`;
   return `Tarifa mensual`;

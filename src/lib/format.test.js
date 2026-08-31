@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcularMonto } from "./format";
+import { calcularMonto, tramoLabel } from "./format";
 
 const rates = {
   mediaHora: 1500,
@@ -53,5 +53,21 @@ describe("calcularMonto con tolerancia", () => {
   it("un toleranciaMin negativo se trata como 0 (no adelanta los tramos)", () => {
     const umbralesNegativos = { mediaEstadiaHoras: 6, estadiaCompletaHoras: 24, toleranciaMin: -10 };
     expect(calcularMonto(90, rates, umbralesNegativos)).toBe(4000);
+  });
+});
+
+describe("tramoLabel con tolerancia", () => {
+  it("muestra 'Media hora' hasta 30+tolerancia minutos", () => {
+    expect(tramoLabel(30, umbrales)).toBe("Media hora");
+    expect(tramoLabel(45, umbrales)).toBe("Media hora");
+  });
+
+  it("muestra 'Hora' recien despues de 30+tolerancia minutos", () => {
+    expect(tramoLabel(46, umbrales)).toBe("Hora");
+  });
+
+  it("es consistente con calcularMonto en el limite de un bloque", () => {
+    // 105 min: todavia bloque 1 de "Media estadía" (ver test de calcularMonto)
+    expect(tramoLabel(105, umbrales)).toBe("Media estadía");
   });
 });
