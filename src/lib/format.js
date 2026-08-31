@@ -21,26 +21,36 @@ export const fmtTime = (ts) =>
 export const fmtDateShort = (ts) =>
   new Date(ts).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
 
-/** Calcula el monto a cobrar dado un tiempo de estadía en minutos. */
+/**
+ * Calcula el monto a cobrar dado un tiempo de estadía en minutos.
+ * `umbrales.toleranciaMin` (default 0) da minutos de gracia antes de pasar
+ * al tramo/bloque siguiente — no aplica a los primeros 30 minutos, que se
+ * cobran a tarifa "media hora" desde el minuto 1.
+ */
 export function calcularMonto(minutos, rates, umbrales) {
   const { mediaHora, hora, mediaEstadia, estadiaCompleta, semanal, mensual } = rates;
   const mediaEstadiaMin = umbrales.mediaEstadiaHoras * 60;
   const estadiaCompletaMin = umbrales.estadiaCompletaHoras * 60;
+  const toleranciaMin = umbrales.toleranciaMin ?? 0;
 
   if (minutos <= 30) return mediaHora;
-  if (minutos <= 60) return hora;
 
-  if (minutos <= mediaEstadiaMin) {
-    const bloques = Math.ceil((minutos - 60) / 30);
+  const t = minutos - toleranciaMin;
+
+  if (t <= 30) return mediaHora;
+  if (t <= 60) return hora;
+
+  if (t <= mediaEstadiaMin) {
+    const bloques = Math.ceil((t - 60) / 30);
     return Math.min(hora + bloques * mediaHora, mediaEstadia);
   }
 
-  if (minutos <= estadiaCompletaMin) {
-    const bloques = Math.ceil((minutos - mediaEstadiaMin) / 60);
+  if (t <= estadiaCompletaMin) {
+    const bloques = Math.ceil((t - mediaEstadiaMin) / 60);
     return Math.min(mediaEstadia + bloques * hora, estadiaCompleta);
   }
 
-  const dias = Math.ceil(minutos / (24 * 60));
+  const dias = Math.ceil(t / (24 * 60));
   if (dias < 7) return Math.min(dias * estadiaCompleta, semanal);
 
   const semanas = Math.ceil(dias / 7);
