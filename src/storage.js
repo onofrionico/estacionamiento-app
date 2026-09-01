@@ -53,8 +53,14 @@ function configFromRows(configRow, tarifaRows) {
 }
 
 async function getVehicleById(id) {
-  const { data: visita, error: eV } = await supabase.from("visitas").select("*").eq("id", id).single();
+  const { data: visita, error: eV } = await supabase
+    .from("visitas")
+    .select("*")
+    .is("deleted_at", null)
+    .eq("id", id)
+    .maybeSingle();
   if (eV) throw eV;
+  if (!visita) return null;
   const [{ data: vehiculo, error: eA }, { data: egreso, error: eE }] = await Promise.all([
     supabase.from("vehiculos").select("*").eq("patente", visita.vehiculo_id).single(),
     supabase.from("egresos").select("*").eq("visita_id", id).maybeSingle(),
