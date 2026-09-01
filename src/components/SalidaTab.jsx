@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LogOut, Search, Clock3, Check, X, ChevronRight, Car } from "lucide-react";
+import { LogOut, Search, Clock3, Check, X, ChevronRight, Car, Printer } from "lucide-react";
 import { TIPOS } from "../constants";
 import { fmtMoney, fmtDur, fmtTime, calcularMonto, tramoLabel } from "../lib/format";
 import { SectionTitle, EmptyState } from "./ui";
@@ -8,21 +8,46 @@ import { SectionTitle, EmptyState } from "./ui";
 /* Salida                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSalida }) {
+export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSalida, onReimprimir }) {
   const [q, setQ] = useState("");
   const [confirmId, setConfirmId] = useState(null);
+  const [ultimoCobro, setUltimoCobro] = useState(null);
 
   const filtered = vehiculosDentro.filter((v) => v.patente.includes(q.toUpperCase()));
+
+  const confirmarCobro = async (id, monto) => {
+    const resultado = await onSalida(id, monto);
+    if (resultado) setUltimoCobro(resultado);
+    setConfirmId(null);
+  };
 
   return (
     <div>
       <SectionTitle icon={LogOut} title="Registrar salida" subtitle={`${vehiculosDentro.length} vehículo(s) dentro`} />
 
+      {ultimoCobro && (
+        <div className="rounded-xl p-3.5 mb-4 flex items-center justify-between" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <p className="text-sm">
+            Cobrado a <span style={{ fontFamily: "var(--font-display)" }} className="font-bold">{ultimoCobro.patente}</span> · {fmtMoney(ultimoCobro.monto)}
+          </p>
+          <button
+            onClick={() => onReimprimir("egreso", ultimoCobro)}
+            className="px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5"
+            style={{ background: "var(--surface2)", color: "var(--text)" }}
+          >
+            <Printer size={14} /> Reimprimir
+          </button>
+        </div>
+      )}
+
       <div className="relative mb-4">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
         <input
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setUltimoCobro(null);
+          }}
           placeholder="Buscar patente…"
           className="w-full pl-9 pr-3 py-2.5 rounded-xl outline-none text-sm"
           style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
@@ -67,7 +92,7 @@ export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSal
                   {confirming ? (
                     <div className="flex gap-2 mt-3">
                       <button
-                        onClick={() => { onSalida(v.id, monto); setConfirmId(null); }}
+                        onClick={() => confirmarCobro(v.id, monto)}
                         className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5"
                         style={{ background: "var(--accent2)", color: "#08210F" }}
                       >
