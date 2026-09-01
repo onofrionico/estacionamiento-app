@@ -59,6 +59,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const [printJob, setPrintJob] = useState(null);
+  const [mediosPago, setMediosPago] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -84,17 +85,20 @@ export default function App() {
     if (!session) {
       setVehicles([]);
       setConfig(null);
+      setMediosPago([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     (async () => {
       try {
-        const [vehiclesRes, configRes] = await Promise.all([
+        const [vehiclesRes, configRes, mediosPagoRes] = await Promise.all([
           storage.getVehicles(),
           storage.getConfig(),
+          storage.getMediosPago(),
         ]);
         setVehicles(vehiclesRes);
+        setMediosPago(mediosPagoRes);
         if (configRes) {
           setConfig(mergeConfig(configRes));
         } else {
@@ -104,6 +108,7 @@ export default function App() {
       } catch (e) {
         setVehicles([]);
         setConfig(DEFAULT_CONFIG);
+        setMediosPago([]);
       } finally {
         setLoading(false);
       }
@@ -126,6 +131,7 @@ export default function App() {
         });
       },
       onConfigChange: (configRow) => setConfig(mergeConfig(configRow)),
+      onMediosPagoChange: setMediosPago,
     });
     return unsubscribe;
   }, [session?.user?.id, loading]);
@@ -228,10 +234,11 @@ export default function App() {
     }
   };
 
-  const registrarSalida = async (id, monto) => {
+  const registrarSalida = async (id, monto, medioPagoId) => {
     const v = vehicles.find((x) => x.id === id);
     if (!v) return null;
-    const patch = { horaSalida: Date.now(), monto, estado: "afuera" };
+    const medioPago = mediosPago.find((m) => m.id === medioPagoId)?.nombre || null;
+    const patch = { horaSalida: Date.now(), monto, medioPagoId, medioPago, estado: "afuera" };
     const vehicleActualizado = { ...v, ...patch };
     setVehicles((prev) => prev.map((x) => (x.id === id ? vehicleActualizado : x)));
     try {
@@ -281,6 +288,37 @@ export default function App() {
       setSaveError(true);
     }
     showToast("Historial borrado");
+  };
+
+  const eliminarVehiculo = async (id) => {
+    const prevVehicles = vehicles;
+    setVehicles((prev) => prev.filter((v) => v.id !== id));
+    try {
+      await storage.deleteVehicle(id);
+      setSaveError(false);
+      showToast("Registro borrado");
+    } catch (e) {
+      setVehicles(prevVehicles);
+      setSaveError(true);
+    }
+  };
+
+  const guardarMedioPago = async (medio) => {
+    const prevMediosPago = mediosPago;
+    setMediosPago((prev) => {
+      const idx = prev.findIndex((m) => m.id === medio.id);
+      if (idx === -1) return [...prev, medio];
+      const next = [...prev];
+      next[idx] = medio;
+      return next;
+    });
+    try {
+      await storage.upsertMedioPago(medio);
+      setSaveError(false);
+    } catch (e) {
+      setMediosPago(prevMediosPago);
+      setSaveError(true);
+    }
   };
 
   return (
