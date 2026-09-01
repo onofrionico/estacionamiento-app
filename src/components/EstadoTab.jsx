@@ -39,7 +39,7 @@ export default function EstadoTab({ vehiculosDentro, now, totalEspacios, disponi
                     <button
                       onClick={() => onReimprimir("ingreso", v)}
                       aria-label={`Reimprimir ticket de ${v.patente}`}
-                      className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+                      className="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
                       style={{ background: "var(--surface2)" }}
                     >
                       <Printer size={13} style={{ color: "var(--muted)" }} />

@@ -88,6 +88,7 @@ export default function EntradaTab({ onRegistrar, disponibles, onReimprimir }) {
 
       {ultimoRegistro && (
         <button
+          type="button"
           onClick={() => onReimprimir("ingreso", ultimoRegistro)}
           className="w-full mt-3 py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2"
           style={{ background: "var(--surface2)", color: "var(--text)" }}
