@@ -135,7 +135,7 @@ export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, medio
                     </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmId(v.id)}
+                      onClick={() => { setConfirmId(v.id); setMedioPagoId(null); }}
                       className="w-full mt-3 py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-1.5"
                       style={{ background: "var(--surface2)", color: "var(--text)" }}
                     >
