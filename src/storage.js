@@ -38,6 +38,7 @@ function configFromRows(configRow, tarifaRows) {
     umbrales: {
       mediaEstadiaHoras: configRow.umbral_media_estadia_horas,
       estadiaCompletaHoras: configRow.umbral_estadia_completa_horas,
+      ...(configRow.umbral_tolerancia_min != null ? { toleranciaMin: configRow.umbral_tolerancia_min } : {}),
     },
   };
 }
@@ -134,6 +135,7 @@ export const storage = {
       total_espacios: config.totalEspacios,
       umbral_media_estadia_horas: config.umbrales.mediaEstadiaHoras,
       umbral_estadia_completa_horas: config.umbrales.estadiaCompletaHoras,
+      umbral_tolerancia_min: config.umbrales.toleranciaMin,
     });
     if (eC) throw eC;
 

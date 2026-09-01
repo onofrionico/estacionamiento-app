@@ -77,6 +77,7 @@ create table config (
   total_espacios int not null,
   umbral_media_estadia_horas int not null,
   umbral_estadia_completa_horas int not null,
+  umbral_tolerancia_min int not null default 15,
   updated_at timestamptz not null default now(),
   check (id = 1)
 );
