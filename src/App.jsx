@@ -365,7 +365,7 @@ export default function App() {
             />
           )}
           {activeTab === "reportes" && (
-            <ReportesTab vehicles={vehicles} now={now} />
+            <ReportesTab vehicles={vehicles} now={now} onEliminar={eliminarVehiculo} />
           )}
           {activeTab === "config" && (
             <ConfigTab

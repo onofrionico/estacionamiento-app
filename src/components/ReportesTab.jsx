@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Car, BarChart3, Search, Clock3, Download } from "lucide-react";
+import { Car, BarChart3, Search, Clock3, Download, Trash2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
@@ -16,7 +16,7 @@ import {
 /* Reportes                                                             */
 /* ------------------------------------------------------------------ */
 
-export default function ReportesTab({ vehicles, now }) {
+export default function ReportesTab({ vehicles, now, onEliminar }) {
   const [periodo, setPeriodo] = useState("hoy"); // hoy | semana | quincena | mes
   const [fechaDesde, setFechaDesde] = useState(dayKey(now - 29 * 24 * 3600 * 1000));
   const [fechaHasta, setFechaHasta] = useState(dayKey(now));
@@ -67,6 +67,7 @@ export default function ReportesTab({ vehicles, now }) {
         "Hora salida": fmtTime(v.horaSalida),
         "Duración": fmtDur((v.horaSalida - v.horaIngreso) / 60000),
         Monto: v.monto ?? "",
+        "Medio de pago": v.medioPago || "",
       }));
 
     downloadXLSX(`reporte-estacionamiento-${fechaDesde}_a_${fechaHasta}.xlsx`, {
@@ -178,13 +179,14 @@ export default function ReportesTab({ vehicles, now }) {
         </div>
       </ChartCard>
 
-      <HistorialSection vehicles={vehicles} now={now} />
+      <HistorialSection vehicles={vehicles} now={now} onEliminar={onEliminar} />
     </div>
   );
 }
 
-function HistorialSection({ vehicles, now }) {
+function HistorialSection({ vehicles, now, onEliminar }) {
   const [q, setQ] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const filtered = vehicles
     .filter((v) => v.patente.includes(q.toUpperCase()))
     .sort((a, b) => b.horaIngreso - a.horaIngreso);
@@ -197,6 +199,7 @@ function HistorialSection({ vehicles, now }) {
       Salida: v.horaSalida ? new Date(v.horaSalida).toLocaleString("es-AR") : "-",
       "Duración": fmtDur(((v.horaSalida || now) - v.horaIngreso) / 60000) + (v.horaSalida ? "" : " (en curso)"),
       Monto: v.monto ?? "",
+      "Medio de pago": v.medioPago || "",
       Estado: v.estado === "dentro" ? "Dentro" : "Afuera",
     }));
     downloadXLSX(`historial-vehiculos-${dayKey(now)}.xlsx`, { Historial: rows });
@@ -236,38 +239,77 @@ function HistorialSection({ vehicles, now }) {
           <div className="max-h-72 overflow-y-auto">
             {filtered.map((v, i) => {
               const Icon = TIPOS.find((t) => t.id === v.tipo)?.Icon || Car;
+              const confirming = confirmDeleteId === v.id;
               return (
                 <div
                   key={v.id}
-                  className="flex items-center justify-between px-3 py-2.5"
+                  className="px-3 py-2.5"
                   style={{ background: "var(--surface)", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}
                 >
-                  <div className="flex items-center gap-2">
-                    <Icon size={14} style={{ color: "var(--muted)" }} />
-                    <div>
-                      <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-semibold tracking-wide">
-                        {v.patente}
-                      </p>
-                      <p style={{ color: "var(--muted)" }} className="text-[10px]">
-                        {fmtDateShort(v.horaIngreso)} {fmtTime(v.horaIngreso)}
-                        {v.horaSalida ? ` → ${fmtTime(v.horaSalida)}` : ""}
-                      </p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon size={14} style={{ color: "var(--muted)" }} />
+                      <div>
+                        <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-semibold tracking-wide">
+                          {v.patente}
+                        </p>
+                        <p style={{ color: "var(--muted)" }} className="text-[10px]">
+                          {fmtDateShort(v.horaIngreso)} {fmtTime(v.horaIngreso)}
+                          {v.horaSalida ? ` → ${fmtTime(v.horaSalida)}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        {v.estado === "dentro" ? (
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                            style={{ background: "var(--accent2)", color: "#08210F" }}
+                          >
+                            Dentro
+                          </span>
+                        ) : (
+                          <>
+                            <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-bold">
+                              {fmtMoney(v.monto)}
+                            </p>
+                            {v.medioPago && (
+                              <p style={{ color: "var(--muted)" }} className="text-[10px]">{v.medioPago}</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(v.id)}
+                        className="p-1.5 rounded-lg"
+                        style={{ color: "var(--muted)" }}
+                        aria-label="Borrar registro"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
-                  <div className="text-right">
-                    {v.estado === "dentro" ? (
-                      <span
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                        style={{ background: "var(--accent2)", color: "#08210F" }}
+                  {confirming && (
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => { onEliminar(v.id); setConfirmDeleteId(null); }}
+                        className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                        style={{ background: "var(--danger)", color: "#fff" }}
                       >
-                        Dentro
-                      </span>
-                    ) : (
-                      <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-bold">
-                        {fmtMoney(v.monto)}
-                      </p>
-                    )}
-                  </div>
+                        Confirmar borrado
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="px-3 py-2 rounded-lg text-xs"
+                        style={{ background: "var(--surface2)", color: "var(--muted)" }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
