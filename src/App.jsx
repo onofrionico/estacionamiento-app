@@ -135,6 +135,10 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    if (printJob) window.print();
+  }, [printJob]);
+
   const showToast = useCallback((msg) => {
     setToast(msg);
     clearTimeout(toastTimer.current);
@@ -179,7 +183,6 @@ export default function App() {
 
   const imprimir = (tipo, vehicle) => {
     setPrintJob({ tipo, vehicle });
-    requestAnimationFrame(() => window.print());
   };
 
   const registrarIngreso = async (patente, tipo) => {
