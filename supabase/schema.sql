@@ -308,6 +308,14 @@ create policy "public read logos" on storage.objects for select using (bucket_id
 alter table visitas add column deleted_at timestamptz;
 alter table visitas add column deleted_by uuid references public.profiles (id);
 
+-- Reemplaza visitas_vehiculo_dentro_uk para excluir filas borradas
+-- lógicamente: sin este ajuste, una visita "dentro" borrada seguiría
+-- ocupando el índice único y volver a registrar esa patente fallaría
+-- por violación de unicidad aunque la app ya no la muestre.
+drop index if exists visitas_vehiculo_dentro_uk;
+create unique index visitas_vehiculo_dentro_uk
+  on visitas (vehiculo_id) where estado = 'dentro' and deleted_at is null;
+
 -- Mismo patrón atómico que cerrar_visita: security invoker respeta las
 -- policies RLS de quien llama, y auth.uid() resuelve quién borra del lado
 -- del servidor sin que el cliente tenga que mandarlo.

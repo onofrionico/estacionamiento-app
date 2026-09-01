@@ -60,6 +60,14 @@ grant execute on function public.cerrar_visita(text, timestamptz, numeric, text)
 alter table visitas add column deleted_at timestamptz;
 alter table visitas add column deleted_by uuid references public.profiles (id);
 
+-- Reemplaza visitas_vehiculo_dentro_uk para excluir filas borradas
+-- lógicamente: sin este ajuste, una visita "dentro" borrada seguiría
+-- ocupando el índice único y volver a registrar esa patente fallaría
+-- por violación de unicidad aunque la app ya no la muestre.
+drop index if exists visitas_vehiculo_dentro_uk;
+create unique index visitas_vehiculo_dentro_uk
+  on visitas (vehiculo_id) where estado = 'dentro' and deleted_at is null;
+
 create or replace function public.soft_delete_visita(p_visita_id text)
 returns void
 language plpgsql
