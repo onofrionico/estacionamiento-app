@@ -32,6 +32,7 @@ export const DEFAULT_CONFIG = {
   umbrales: {
     mediaEstadiaHoras: 6,
     estadiaCompletaHoras: 24,
+    toleranciaMin: 15,
   },
 };
 

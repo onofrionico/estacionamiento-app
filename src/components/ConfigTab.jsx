@@ -92,6 +92,7 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
           <div className="grid grid-cols-2 gap-2.5">
             <RateField label="Media estadía desde (hs)" value={local.umbrales.mediaEstadiaHoras} onChange={(v) => setUmbral("mediaEstadiaHoras", v)} suffix="hs" />
             <RateField label="Estadía completa desde (hs)" value={local.umbrales.estadiaCompletaHoras} onChange={(v) => setUmbral("estadiaCompletaHoras", v)} suffix="hs" />
+            <RateField label="Tolerancia antes de cobrar el tramo siguiente" value={local.umbrales.toleranciaMin} onChange={(v) => setUmbral("toleranciaMin", v)} suffix="min" />
           </div>
         </div>
 

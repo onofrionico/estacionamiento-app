@@ -67,7 +67,7 @@ export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSal
                   {confirming ? (
                     <div className="flex gap-2 mt-3">
                       <button
-                        onClick={() => { onSalida(v.id); setConfirmId(null); }}
+                        onClick={() => { onSalida(v.id, monto); setConfirmId(null); }}
                         className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5"
                         style={{ background: "var(--accent2)", color: "#08210F" }}
                       >

@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { supabase } from "./supabaseClient";
 import { DEFAULT_CONFIG, TIPOS } from "./constants";
 import {
-  fmtMoney, calcularMonto,
+  fmtMoney,
 } from "./lib/format";
 import { signOut, fetchProfile, TABS_POR_ROL, ROLES } from "./lib/auth";
 import RootStyles from "./components/RootStyles";
@@ -206,12 +206,9 @@ export default function App() {
     }
   };
 
-  const registrarSalida = async (id) => {
+  const registrarSalida = async (id, monto) => {
     const v = vehicles.find((x) => x.id === id);
     if (!v) return;
-    const minutos = (Date.now() - v.horaIngreso) / 60000;
-    const rates = config.rates[v.tipo] || config.rates.auto;
-    const monto = calcularMonto(minutos, rates, config.umbrales);
     const patch = { horaSalida: Date.now(), monto, estado: "afuera" };
     setVehicles((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     try {
