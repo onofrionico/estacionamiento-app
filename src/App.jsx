@@ -350,6 +350,7 @@ export default function App() {
               now={now}
               rates={config.rates}
               umbrales={config.umbrales}
+              mediosPago={mediosPago}
               onSalida={registrarSalida}
               onReimprimir={imprimir}
             />

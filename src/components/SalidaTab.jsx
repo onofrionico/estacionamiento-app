@@ -8,17 +8,24 @@ import { SectionTitle, EmptyState } from "./ui";
 /* Salida                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSalida, onReimprimir }) {
+export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, mediosPago, onSalida, onReimprimir }) {
   const [q, setQ] = useState("");
   const [confirmId, setConfirmId] = useState(null);
+  const [medioPagoId, setMedioPagoId] = useState(null);
   const [ultimoCobro, setUltimoCobro] = useState(null);
 
   const filtered = vehiculosDentro.filter((v) => v.patente.includes(q.toUpperCase()));
+  const activos = mediosPago.filter((m) => m.activo);
 
-  const confirmarCobro = async (id, monto) => {
-    const resultado = await onSalida(id, monto);
-    if (resultado) setUltimoCobro(resultado);
+  const cerrarConfirmacion = () => {
     setConfirmId(null);
+    setMedioPagoId(null);
+  };
+
+  const confirmarCobro = async (id, monto, medioPago) => {
+    const resultado = await onSalida(id, monto, medioPago);
+    if (resultado) setUltimoCobro(resultado);
+    cerrarConfirmacion();
   };
 
   return (
@@ -90,21 +97,41 @@ export default function SalidaTab({ vehiculosDentro, now, rates, umbrales, onSal
                   </div>
 
                   {confirming ? (
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={() => confirmarCobro(v.id, monto)}
-                        className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5"
-                        style={{ background: "var(--accent2)", color: "#08210F" }}
-                      >
-                        <Check size={16} /> Confirmar cobro
-                      </button>
-                      <button
-                        onClick={() => setConfirmId(null)}
-                        className="px-4 py-2.5 rounded-lg font-medium text-sm"
-                        style={{ background: "var(--surface2)", color: "var(--muted)" }}
-                      >
-                        <X size={16} />
-                      </button>
+                    <div className="mt-3">
+                      <div className="flex flex-wrap gap-1.5 mb-2.5">
+                        {activos.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setMedioPagoId(m.id)}
+                            className="px-3 py-1.5 rounded-full text-xs font-medium"
+                            style={{
+                              background: medioPagoId === m.id ? "var(--accent)" : "var(--surface2)",
+                              color: medioPagoId === m.id ? "#1A1300" : "var(--text)",
+                              border: `1px solid ${medioPagoId === m.id ? "var(--accent)" : "var(--border)"}`,
+                            }}
+                          >
+                            {m.nombre}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          disabled={!medioPagoId}
+                          onClick={() => confirmarCobro(v.id, monto, medioPagoId)}
+                          className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
+                          style={{ background: "var(--accent2)", color: "#08210F" }}
+                        >
+                          <Check size={16} /> Confirmar cobro
+                        </button>
+                        <button
+                          onClick={cerrarConfirmacion}
+                          className="px-4 py-2.5 rounded-lg font-medium text-sm"
+                          style={{ background: "var(--surface2)", color: "var(--muted)" }}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <button
