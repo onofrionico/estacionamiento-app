@@ -27,6 +27,7 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
       const url = await storage.uploadLogo(file);
       setLocal((prev) => ({ ...prev, logoUrl: url }));
     } catch (err) {
+      console.error(err);
       setLogoError("No se pudo subir el logo.");
     } finally {
       setUploadingLogo(false);
@@ -153,6 +154,7 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
               type="checkbox"
               checked={!!local.imprimirIngreso}
               onChange={(e) => setLocal({ ...local, imprimirIngreso: e.target.checked })}
+              style={{ accentColor: "var(--accent)" }}
             />
             <span className="text-sm">Imprimir automáticamente al ingreso</span>
           </label>
@@ -161,6 +163,7 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
               type="checkbox"
               checked={!!local.imprimirEgreso}
               onChange={(e) => setLocal({ ...local, imprimirEgreso: e.target.checked })}
+              style={{ accentColor: "var(--accent)" }}
             />
             <span className="text-sm">Imprimir automáticamente al egreso</span>
           </label>
