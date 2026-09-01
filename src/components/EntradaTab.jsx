@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LogIn, Check } from "lucide-react";
+import { LogIn, Check, Printer } from "lucide-react";
 import { TIPOS } from "../constants";
 import { SectionTitle } from "./ui";
 
@@ -7,13 +7,15 @@ import { SectionTitle } from "./ui";
 /* Entrada                                                             */
 /* ------------------------------------------------------------------ */
 
-export default function EntradaTab({ onRegistrar, disponibles }) {
+export default function EntradaTab({ onRegistrar, disponibles, onReimprimir }) {
   const [patente, setPatente] = useState("");
   const [tipo, setTipo] = useState("auto");
+  const [ultimoRegistro, setUltimoRegistro] = useState(null);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    onRegistrar(patente, tipo);
+    const registrado = await onRegistrar(patente, tipo);
+    if (registrado) setUltimoRegistro(registrado);
     setPatente("");
   };
 
@@ -29,7 +31,10 @@ export default function EntradaTab({ onRegistrar, disponibles }) {
           <input
             autoFocus
             value={patente}
-            onChange={(e) => setPatente(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setPatente(e.target.value.toUpperCase());
+              setUltimoRegistro(null);
+            }}
             placeholder="AB123CD"
             className="w-full text-2xl font-bold tracking-widest text-center py-4 rounded-xl outline-none"
             style={{
@@ -80,6 +85,17 @@ export default function EntradaTab({ onRegistrar, disponibles }) {
           </p>
         )}
       </form>
+
+      {ultimoRegistro && (
+        <button
+          type="button"
+          onClick={() => onReimprimir("ingreso", ultimoRegistro)}
+          className="w-full mt-3 py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2"
+          style={{ background: "var(--surface2)", color: "var(--text)" }}
+        >
+          <Printer size={16} /> Reimprimir ticket de {ultimoRegistro.patente}
+        </button>
+      )}
     </div>
   );
 }

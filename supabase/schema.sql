@@ -30,8 +30,10 @@ create table visitas (
   id text primary key,
   vehiculo_id text not null references vehiculos (patente),
   hora_ingreso timestamptz not null,
+  numero_ticket int generated always as identity,
   estado text not null check (estado in ('dentro', 'afuera')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint visitas_numero_ticket_unique unique (numero_ticket)
 );
 
 -- Impide que la misma patente tenga dos visitas "dentro" a la vez.
@@ -74,10 +76,16 @@ create view tarifas_vigentes
 
 create table config (
   id int primary key default 1,
+  nombre text not null default 'Mi Estacionamiento',
+  direccion text,
+  telefono text,
+  logo_url text,
   total_espacios int not null,
   umbral_media_estadia_horas int not null,
   umbral_estadia_completa_horas int not null,
   umbral_tolerancia_min int not null default 15,
+  imprimir_ingreso boolean not null default false,
+  imprimir_egreso boolean not null default false,
   updated_at timestamptz not null default now(),
   check (id = 1)
 );
@@ -250,3 +258,15 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+insert into storage.buckets (id, name, public)
+values ('logos', 'logos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "authenticated write logos" on storage.objects;
+create policy "authenticated write logos" on storage.objects for all
+  using (bucket_id = 'logos' and auth.role() = 'authenticated')
+  with check (bucket_id = 'logos' and auth.role() = 'authenticated');
+
+drop policy if exists "public read logos" on storage.objects;
+create policy "public read logos" on storage.objects for select using (bucket_id = 'logos');

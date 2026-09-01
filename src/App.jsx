@@ -12,6 +12,7 @@ import { signOut, fetchProfile, TABS_POR_ROL, ROLES } from "./lib/auth";
 import RootStyles from "./components/RootStyles";
 import { TopBar, BottomNav } from "./components/Nav";
 import LoginScreen from "./components/LoginScreen";
+import Ticket from "./components/Ticket";
 
 const EntradaTab = lazy(() => import("./components/EntradaTab"));
 const SalidaTab = lazy(() => import("./components/SalidaTab"));
@@ -57,6 +58,7 @@ export default function App() {
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  const [printJob, setPrintJob] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -133,6 +135,10 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    if (printJob) window.print();
+  }, [printJob]);
+
   const showToast = useCallback((msg) => {
     setToast(msg);
     clearTimeout(toastTimer.current);
@@ -175,13 +181,24 @@ export default function App() {
   const disponibles = Math.max(0, config.totalEspacios - ocupados);
   const ocupacionPct = Math.min(100, Math.round((ocupados / Math.max(1, config.totalEspacios)) * 100));
 
+  const imprimir = (tipo, vehicle) => {
+    setPrintJob({ tipo, vehicle });
+  };
+
   const registrarIngreso = async (patente, tipo) => {
     const pat = patente.trim().toUpperCase();
-    if (!pat) return showToast("Ingresá una patente");
-    if (vehiculosDentro.some((v) => v.patente === pat)) {
-      return showToast(`${pat} ya está registrado dentro`);
+    if (!pat) {
+      showToast("Ingresá una patente");
+      return null;
     }
-    if (disponibles <= 0) return showToast("No hay espacio disponible");
+    if (vehiculosDentro.some((v) => v.patente === pat)) {
+      showToast(`${pat} ya está registrado dentro`);
+      return null;
+    }
+    if (disponibles <= 0) {
+      showToast("No hay espacio disponible");
+      return null;
+    }
     const vehicle = {
       id: `${pat}-${Date.now()}`,
       patente: pat,
@@ -193,9 +210,13 @@ export default function App() {
     };
     setVehicles((prev) => [vehicle, ...prev]);
     try {
-      await storage.insertVehicle(vehicle);
+      const inserted = await storage.insertVehicle(vehicle);
+      const vehicleConTicket = { ...vehicle, numeroTicket: inserted.numeroTicket };
+      setVehicles((prev) => prev.map((v) => (v.id === vehicle.id ? vehicleConTicket : v)));
       setSaveError(false);
       showToast(`Ingreso registrado: ${pat}`);
+      if (config.imprimirIngreso) imprimir("ingreso", vehicleConTicket);
+      return vehicleConTicket;
     } catch (e) {
       setVehicles((prev) => prev.filter((v) => v.id !== vehicle.id));
       if (e.code === "DUPLICATE_PATENTE") {
@@ -203,21 +224,26 @@ export default function App() {
       } else {
         setSaveError(true);
       }
+      return null;
     }
   };
 
   const registrarSalida = async (id, monto) => {
     const v = vehicles.find((x) => x.id === id);
-    if (!v) return;
+    if (!v) return null;
     const patch = { horaSalida: Date.now(), monto, estado: "afuera" };
-    setVehicles((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const vehicleActualizado = { ...v, ...patch };
+    setVehicles((prev) => prev.map((x) => (x.id === id ? vehicleActualizado : x)));
     try {
       await storage.updateVehicle(id, patch);
       setSaveError(false);
       showToast(`Salida registrada: ${v.patente} · ${fmtMoney(monto)}`);
+      if (config.imprimirEgreso) imprimir("egreso", vehicleActualizado);
+      return vehicleActualizado;
     } catch (e) {
       setVehicles((prev) => prev.map((x) => (x.id === id ? v : x)));
       setSaveError(true);
+      return null;
     }
   };
 
@@ -278,7 +304,7 @@ export default function App() {
           }
         >
           {activeTab === "entrada" && (
-            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} />
+            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} onReimprimir={imprimir} />
           )}
           {activeTab === "salida" && (
             <SalidaTab
@@ -287,6 +313,7 @@ export default function App() {
               rates={config.rates}
               umbrales={config.umbrales}
               onSalida={registrarSalida}
+              onReimprimir={imprimir}
             />
           )}
           {activeTab === "estado" && (
@@ -295,6 +322,7 @@ export default function App() {
               now={now}
               totalEspacios={config.totalEspacios}
               disponibles={disponibles}
+              onReimprimir={imprimir}
             />
           )}
           {activeTab === "reportes" && (
@@ -330,6 +358,10 @@ export default function App() {
           <AlertTriangle size={13} /> No se pudo guardar
         </div>
       )}
+
+      <div id="ticket-print">
+        <Ticket config={config} job={printJob} />
+      </div>
     </div>
   );
 }

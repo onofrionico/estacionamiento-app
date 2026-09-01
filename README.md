@@ -75,6 +75,11 @@ Para levantar tu propio backend:
      3FN y además migra los datos existentes. El archivo incluye
      instrucciones para verificar la migración antes de borrar las tablas
      viejas.
+   - Proyecto existente que ya corrió el esquema 3FN de arriba pero es de
+     antes de la feature de impresión de tickets: correr además
+     `supabase/add_tickets.sql`, que agrega los datos de identidad del
+     negocio (nombre, dirección, teléfono, logo), los flags de impresión
+     automática y la numeración secuencial de ticket.
 4. **Copiar las credenciales**: `.env.example` a `.env`
 
    ```bash
@@ -164,6 +169,23 @@ src/
   main.jsx      # punto de entrada de React
   index.css     # Tailwind
 ```
+
+## Impresión de tickets
+
+Desde **Config** se puede activar la impresión automática de un ticket al
+registrar el ingreso y/o el egreso de un vehículo (dos interruptores
+independientes). El ticket se imprime con el diálogo de impresión nativo del
+navegador (`window.print()`) contra la impresora térmica de 80mm que ya esté
+instalada como impresora del sistema — no requiere ningún driver ni
+integración especial. También se puede reimprimir manualmente un ticket:
+justo después de registrar un ingreso (botón bajo el formulario), justo
+después de cobrar una salida (botón en el resumen que aparece), o en
+cualquier momento desde el listado de **Estado** (ícono de impresora en cada
+vehículo dentro).
+
+El nombre, dirección, teléfono y logo del estacionamiento que aparecen en el
+ticket se configuran también desde **Config**; el logo se sube como imagen y
+queda alojado en Supabase Storage.
 
 ## Configuración
 

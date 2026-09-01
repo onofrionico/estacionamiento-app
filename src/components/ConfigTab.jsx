@@ -3,6 +3,7 @@ import { Settings2, Check, RotateCcw, Trash2 } from "lucide-react";
 import { TIPOS } from "../constants";
 import { SectionTitle, ConfigField, RateField } from "./ui";
 import UserManagement from "./UserManagement";
+import { storage } from "../storage";
 
 /* ------------------------------------------------------------------ */
 /* Config                                                               */
@@ -14,6 +15,24 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmBorrar, setConfirmBorrar] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoError, setLogoError] = useState("");
+
+  const handleLogoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingLogo(true);
+    setLogoError("");
+    try {
+      const url = await storage.uploadLogo(file);
+      setLocal((prev) => ({ ...prev, logoUrl: url }));
+    } catch (err) {
+      console.error(err);
+      setLogoError("No se pudo subir el logo.");
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   const setRate = (key, val) =>
     setLocal({
@@ -55,6 +74,38 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
           />
         </ConfigField>
 
+        <ConfigField label="Dirección (para el ticket, opcional)">
+          <input
+            value={local.direccion || ""}
+            onChange={(e) => setLocal({ ...local, direccion: e.target.value })}
+            className="input-field"
+          />
+        </ConfigField>
+
+        <ConfigField label="Teléfono (para el ticket, opcional)">
+          <input
+            value={local.telefono || ""}
+            onChange={(e) => setLocal({ ...local, telefono: e.target.value })}
+            className="input-field"
+          />
+        </ConfigField>
+
+        <ConfigField label="Logo (para el ticket, opcional)">
+          <div className="flex items-center gap-3">
+            {local.logoUrl && (
+              <img
+                src={local.logoUrl}
+                alt="Logo"
+                className="w-12 h-12 object-contain rounded-lg"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+              />
+            )}
+            <input type="file" accept="image/*" onChange={handleLogoChange} className="text-xs" disabled={uploadingLogo} />
+          </div>
+          {uploadingLogo && <p style={{ color: "var(--muted)" }} className="text-xs mt-1">Subiendo…</p>}
+          {logoError && <p style={{ color: "var(--danger)" }} className="text-xs mt-1">{logoError}</p>}
+        </ConfigField>
+
         <div>
           <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-2">Tarifas por tipo de vehículo</p>
 
@@ -94,6 +145,28 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
             <RateField label="Estadía completa desde (hs)" value={local.umbrales.estadiaCompletaHoras} onChange={(v) => setUmbral("estadiaCompletaHoras", v)} suffix="hs" />
             <RateField label="Tolerancia antes de cobrar el tramo siguiente" value={local.umbrales.toleranciaMin} onChange={(v) => setUmbral("toleranciaMin", v)} suffix="min" />
           </div>
+        </div>
+
+        <div>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-2">Impresión de tickets</p>
+          <label className="flex items-center gap-2.5 py-2">
+            <input
+              type="checkbox"
+              checked={!!local.imprimirIngreso}
+              onChange={(e) => setLocal({ ...local, imprimirIngreso: e.target.checked })}
+              style={{ accentColor: "var(--accent)" }}
+            />
+            <span className="text-sm">Imprimir automáticamente al ingreso</span>
+          </label>
+          <label className="flex items-center gap-2.5 py-2">
+            <input
+              type="checkbox"
+              checked={!!local.imprimirEgreso}
+              onChange={(e) => setLocal({ ...local, imprimirEgreso: e.target.checked })}
+              style={{ accentColor: "var(--accent)" }}
+            />
+            <span className="text-sm">Imprimir automáticamente al egreso</span>
+          </label>
         </div>
 
         <button

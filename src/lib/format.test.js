@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcularMonto, tramoLabel } from "./format";
+import { calcularMonto, tramoLabel, fmtDateTime } from "./format";
 
 const rates = {
   mediaHora: 1500,
@@ -85,5 +85,13 @@ describe("tramoLabel con tolerancia", () => {
     const umbralesNegativos = { mediaEstadiaHoras: 6, estadiaCompletaHoras: 24, toleranciaMin: -10 };
     // Con clamp: t = 55 - 0 = 55 -> "Hora". Sin clamp: t = 55 - (-10) = 65 -> "Media estadía".
     expect(tramoLabel(55, umbralesNegativos)).toBe("Hora");
+  });
+});
+
+describe("fmtDateTime", () => {
+  it("incluye la fecha en formato dd/mm/aaaa y la hora en formato hh:mm", () => {
+    const ts = new Date(2026, 7, 31, 14, 5, 0).getTime(); // 31/ago/2026 14:05 (mes 0-indexed)
+    const out = fmtDateTime(ts);
+    expect(out).toBe("31/08/2026, 14:05");
   });
 });
