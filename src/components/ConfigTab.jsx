@@ -19,6 +19,7 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState("");
   const [nuevoMedioPago, setNuevoMedioPago] = useState("");
+  const [medioPagoError, setMedioPagoError] = useState("");
 
   const handleLogoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -56,11 +57,20 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
 
   const agregarMedioPago = () => {
     const nombre = nuevoMedioPago.trim();
-    if (!nombre) return;
+    if (!nombre) {
+      setMedioPagoError("Ingresá un nombre.");
+      return;
+    }
+    const yaExiste = mediosPago.some((m) => m.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (yaExiste) {
+      setMedioPagoError(`Ya existe un medio de pago llamado "${nombre}".`);
+      return;
+    }
     const base = slugify(nombre) || `medio-${Date.now()}`;
     const id = mediosPago.some((m) => m.id === base) ? `${base}-${Date.now()}` : base;
     onSaveMedioPago({ id, nombre, activo: true });
     setNuevoMedioPago("");
+    setMedioPagoError("");
   };
 
   const toggleMedioPago = (medio) => onSaveMedioPago({ ...medio, activo: !medio.activo });
@@ -187,7 +197,10 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
           <div className="flex gap-2">
             <input
               value={nuevoMedioPago}
-              onChange={(e) => setNuevoMedioPago(e.target.value)}
+              onChange={(e) => {
+                setNuevoMedioPago(e.target.value);
+                setMedioPagoError("");
+              }}
               placeholder="Nuevo medio de pago"
               className="input-field flex-1"
             />
@@ -200,6 +213,7 @@ export default function ConfigTab({ config, onSave, onResetDemo, onBorrarTodo, c
               Agregar
             </button>
           </div>
+          {medioPagoError && <p style={{ color: "var(--danger)" }} className="text-xs mt-1">{medioPagoError}</p>}
         </div>
 
         <div>
