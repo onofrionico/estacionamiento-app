@@ -342,7 +342,7 @@ export default function App() {
           }
         >
           {activeTab === "entrada" && (
-            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} onReimprimir={imprimir} />
+            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} onReimprimir={imprimir} vehiculosDentro={vehiculosDentro} />
           )}
           {activeTab === "salida" && (
             <SalidaTab
