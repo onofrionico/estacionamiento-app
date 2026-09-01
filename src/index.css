@@ -5,3 +5,25 @@
 html, body, #root {
   height: 100%;
 }
+
+@media screen {
+  #ticket-print {
+    display: none;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #ticket-print,
+  #ticket-print * {
+    visibility: visible;
+  }
+  #ticket-print {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80mm;
+  }
+}
