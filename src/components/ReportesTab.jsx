@@ -16,12 +16,24 @@ import {
 /* Reportes                                                             */
 /* ------------------------------------------------------------------ */
 
+const PERIODOS = [
+  { id: "hoy", label: "Hoy" },
+  { id: "semana", label: "Semana" },
+  { id: "quincena", label: "Quincena" },
+  { id: "mes", label: "Mes" },
+];
+
 export default function ReportesTab({ vehicles, now, onEliminar }) {
   const [periodo, setPeriodo] = useState("hoy"); // hoy | semana | quincena | mes
   const [fechaDesde, setFechaDesde] = useState(dayKey(now - 29 * 24 * 3600 * 1000));
   const [fechaHasta, setFechaHasta] = useState(dayKey(now));
 
   const cortes = useMemo(() => computeCortes(vehicles, now), [vehicles, now]);
+
+  const desglosePorMedioPago = useMemo(
+    () => montosPorMedioPago(vehicles, periodoFromTs(periodo, now)),
+    [vehicles, periodo, now]
+  );
 
   const chartData = useMemo(() => {
     if (periodo === "hoy") return movimientosPorHora(vehicles, now);
@@ -124,12 +136,7 @@ export default function ReportesTab({ vehicles, now, onEliminar }) {
       </div>
 
       <div className="flex gap-1.5 mb-4">
-        {[
-          { id: "hoy", label: "Hoy" },
-          { id: "semana", label: "Semana" },
-          { id: "quincena", label: "Quincena" },
-          { id: "mes", label: "Mes" },
-        ].map((p) => (
+        {PERIODOS.map((p) => (
           <button
             key={p.id}
             onClick={() => setPeriodo(p.id)}
@@ -144,6 +151,33 @@ export default function ReportesTab({ vehicles, now, onEliminar }) {
           </button>
         ))}
       </div>
+
+      {desglosePorMedioPago.length > 0 && (
+        <div className="rounded-xl p-3.5 mb-3" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-semibold mb-2">
+            Recaudación por medio de pago — {PERIODOS.find((p) => p.id === periodo)?.label}
+          </p>
+          <div className="space-y-1.5">
+            {desglosePorMedioPago.map((d) => (
+              <div key={d.nombre} className="flex items-center justify-between text-sm">
+                <span>{d.nombre}</span>
+                <span style={{ fontFamily: "var(--font-display)" }} className="font-semibold">
+                  {fmtMoney(d.monto)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div
+            className="flex items-center justify-between text-sm mt-2 pt-2"
+            style={{ borderTop: "1px solid var(--border)" }}
+          >
+            <span className="font-semibold">Total</span>
+            <span style={{ fontFamily: "var(--font-display)" }} className="font-bold">
+              {fmtMoney(desglosePorMedioPago.reduce((a, d) => a + d.monto, 0))}
+            </span>
+          </div>
+        </div>
+      )}
 
       <ChartCard title="Ingresos y egresos">
         <div className={scrollable ? "overflow-x-auto" : ""}>
@@ -386,4 +420,24 @@ function movimientosPorDia(vehicles, now, dias) {
     buckets[k].picoOcupacion = max;
   });
   return order.map((k) => buckets[k]);
+}
+
+/** Resuelve el timestamp "desde" para un id de período (mismos umbrales que computeCortes). */
+function periodoFromTs(periodo, now) {
+  if (periodo === "hoy") return startOfDay(now);
+  const dias = periodo === "semana" ? 7 : periodo === "quincena" ? 15 : 30;
+  return now - dias * 24 * 3600 * 1000;
+}
+
+/** Recaudación agrupada por medio de pago desde fromTs. Sin medio cargado -> "Sin especificar". */
+function montosPorMedioPago(vehicles, fromTs) {
+  const salidas = vehicles.filter((v) => v.estado === "afuera" && v.horaSalida && v.horaSalida >= fromTs);
+  const totales = new Map();
+  salidas.forEach((v) => {
+    const nombre = v.medioPago || "Sin especificar";
+    totales.set(nombre, (totales.get(nombre) || 0) + (v.monto || 0));
+  });
+  return [...totales.entries()]
+    .map(([nombre, monto]) => ({ nombre, monto }))
+    .sort((a, b) => b.monto - a.monto);
 }
