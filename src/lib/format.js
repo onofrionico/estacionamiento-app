@@ -105,3 +105,29 @@ export const startOfDay = (d) => {
   x.setHours(0, 0, 0, 0);
   return x.getTime();
 };
+
+/** Convierte un nombre en un id de tabla: minusculas, sin acentos, solo [a-z0-9-]. */
+export function slugify(nombre) {
+  return nombre
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Sugiere una patente sufijada (ej. "234-B") para diferenciar un vehiculo
+ * de otro que ya esta "dentro" con el mismo valor cargado. Prueba -B, -C,
+ * -D... hasta encontrar una que ningun vehiculo dentro tenga ocupada.
+ */
+export function suggestPatenteSuffix(basePatente, vehiculosDentro) {
+  const enUso = new Set(vehiculosDentro.map((v) => v.patente));
+  const letras = "BCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (const letra of letras) {
+    const candidata = `${basePatente}-${letra}`;
+    if (!enUso.has(candidata)) return candidata;
+  }
+  return `${basePatente}-${Date.now()}`;
+}
