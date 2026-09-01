@@ -23,6 +23,7 @@ function flattenVehicle(visita, vehiculo, egreso) {
     horaSalida: egreso ? new Date(egreso.hora_salida).getTime() : null,
     monto: egreso ? Number(egreso.monto) : null,
     estado: visita.estado,
+    numeroTicket: visita.numero_ticket,
   };
 }
 
@@ -33,6 +34,12 @@ function configFromRows(configRow, tarifaRows) {
     rates[t.tipo_id][t.concepto] = Number(t.monto);
   }
   return {
+    nombre: configRow.nombre,
+    direccion: configRow.direccion || "",
+    telefono: configRow.telefono || "",
+    logoUrl: configRow.logo_url || "",
+    imprimirIngreso: !!configRow.imprimir_ingreso,
+    imprimirEgreso: !!configRow.imprimir_egreso,
     totalEspacios: configRow.total_espacios,
     rates,
     umbrales: {
@@ -89,12 +96,16 @@ export const storage = {
       .upsert({ patente: vehicle.patente, tipo_id: vehicle.tipo }, { onConflict: "patente" });
     if (upsertError) throw upsertError;
 
-    const { error } = await supabase.from("visitas").insert({
-      id: vehicle.id,
-      vehiculo_id: vehicle.patente,
-      hora_ingreso: new Date(vehicle.horaIngreso).toISOString(),
-      estado: "dentro",
-    });
+    const { data, error } = await supabase
+      .from("visitas")
+      .insert({
+        id: vehicle.id,
+        vehiculo_id: vehicle.patente,
+        hora_ingreso: new Date(vehicle.horaIngreso).toISOString(),
+        estado: "dentro",
+      })
+      .select()
+      .single();
     if (error) {
       if (error.code === "23505") {
         const dupError = new Error(`${vehicle.patente} ya está registrado dentro`);
@@ -103,7 +114,7 @@ export const storage = {
       }
       throw error;
     }
-    return vehicle;
+    return { ...vehicle, numeroTicket: data.numero_ticket };
   },
 
   async updateVehicle(id, patch) {
@@ -132,6 +143,12 @@ export const storage = {
   async setConfig(config) {
     const { error: eC } = await supabase.from("config").upsert({
       id: 1,
+      nombre: config.nombre,
+      direccion: config.direccion || null,
+      telefono: config.telefono || null,
+      logo_url: config.logoUrl || null,
+      imprimir_ingreso: !!config.imprimirIngreso,
+      imprimir_egreso: !!config.imprimirEgreso,
       total_espacios: config.totalEspacios,
       umbral_media_estadia_horas: config.umbrales.mediaEstadiaHoras,
       umbral_estadia_completa_horas: config.umbrales.estadiaCompletaHoras,
@@ -150,6 +167,14 @@ export const storage = {
     );
     const { error: eT } = await supabase.from("tarifas_por_tipo").insert(tarifaRows);
     if (eT) throw eT;
+  },
+
+  async uploadLogo(file) {
+    const ext = file.name.split(".").pop();
+    const path = `logo-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
+    if (error) throw error;
+    return supabase.storage.from("logos").getPublicUrl(path).data.publicUrl;
   },
 
   subscribeToChanges({ onVehicleChange, onConfigChange }) {
