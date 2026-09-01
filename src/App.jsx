@@ -374,6 +374,8 @@ export default function App() {
               onResetDemo={resetDemo}
               onBorrarTodo={borrarTodo}
               currentUserId={profile.id}
+              mediosPago={mediosPago}
+              onSaveMedioPago={guardarMedioPago}
             />
           )}
         </Suspense>
