@@ -21,6 +21,16 @@ export const fmtTime = (ts) =>
 export const fmtDateShort = (ts) =>
   new Date(ts).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
 
+export const fmtDateTime = (ts) =>
+  new Date(ts).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
 /**
  * Calcula el monto a cobrar dado un tiempo de estadía en minutos.
  * `umbrales.toleranciaMin` (default 0) da minutos de gracia antes de pasar
