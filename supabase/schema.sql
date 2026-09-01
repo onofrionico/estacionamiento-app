@@ -33,7 +33,7 @@ create table visitas (
   numero_ticket int generated always as identity,
   estado text not null check (estado in ('dentro', 'afuera')),
   created_at timestamptz not null default now(),
-  unique (numero_ticket)
+  constraint visitas_numero_ticket_unique unique (numero_ticket)
 );
 
 -- Impide que la misma patente tenga dos visitas "dentro" a la vez.
@@ -263,8 +263,10 @@ insert into storage.buckets (id, name, public)
 values ('logos', 'logos', true)
 on conflict (id) do nothing;
 
+drop policy if exists "authenticated write logos" on storage.objects;
 create policy "authenticated write logos" on storage.objects for all
   using (bucket_id = 'logos' and auth.role() = 'authenticated')
   with check (bucket_id = 'logos' and auth.role() = 'authenticated');
 
+drop policy if exists "public read logos" on storage.objects;
 create policy "public read logos" on storage.objects for select using (bucket_id = 'logos');
