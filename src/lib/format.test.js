@@ -92,7 +92,6 @@ describe("fmtDateTime", () => {
   it("incluye la fecha en formato dd/mm/aaaa y la hora en formato hh:mm", () => {
     const ts = new Date(2026, 7, 31, 14, 5, 0).getTime(); // 31/ago/2026 14:05 (mes 0-indexed)
     const out = fmtDateTime(ts);
-    expect(out).toContain("31/08/2026");
-    expect(out).toContain("14:05");
+    expect(out).toBe("31/08/2026, 14:05");
   });
 });
