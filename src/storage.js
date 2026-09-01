@@ -10,7 +10,7 @@
  */
 import { supabase } from "./supabaseClient";
 
-function flattenVehicle(visita, vehiculo, egreso) {
+function flattenVehicle(visita, vehiculo, egreso, medioPago) {
   if (!vehiculo) {
     console.error(`storage: visita ${visita.id} referencia un vehiculo inexistente (${visita.vehiculo_id})`);
     return null;
@@ -22,6 +22,8 @@ function flattenVehicle(visita, vehiculo, egreso) {
     horaIngreso: new Date(visita.hora_ingreso).getTime(),
     horaSalida: egreso ? new Date(egreso.hora_salida).getTime() : null,
     monto: egreso ? Number(egreso.monto) : null,
+    medioPagoId: egreso ? egreso.medio_pago_id : null,
+    medioPago: medioPago ? medioPago.nombre : null,
     estado: visita.estado,
     numeroTicket: visita.numero_ticket,
   };
@@ -59,7 +61,17 @@ async function getVehicleById(id) {
   ]);
   if (eA) throw eA;
   if (eE) throw eE;
-  return flattenVehicle(visita, vehiculo, egreso);
+  let medioPago = null;
+  if (egreso?.medio_pago_id) {
+    const { data, error: eM } = await supabase
+      .from("medios_pago")
+      .select("*")
+      .eq("id", egreso.medio_pago_id)
+      .maybeSingle();
+    if (eM) throw eM;
+    medioPago = data;
+  }
+  return flattenVehicle(visita, vehiculo, egreso, medioPago);
 }
 
 export const storage = {
@@ -67,26 +79,36 @@ export const storage = {
     const { data: visitas, error: eV } = await supabase
       .from("visitas")
       .select("*")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (eV) throw eV;
 
     const patentes = [...new Set(visitas.map((v) => v.vehiculo_id))];
     const visitaIds = visitas.map((v) => v.id);
 
-    const [{ data: vehiculos, error: eA }, { data: egresos, error: eE }] = await Promise.all([
+    const [
+      { data: vehiculos, error: eA },
+      { data: egresos, error: eE },
+      { data: mediosPago, error: eM },
+    ] = await Promise.all([
       supabase.from("vehiculos").select("*").in("patente", patentes),
       supabase.from("egresos").select("*").in("visita_id", visitaIds),
+      supabase.from("medios_pago").select("*"),
     ]);
     if (eA) throw eA;
     if (eE) throw eE;
+    if (eM) throw eM;
 
     const vehiculoByPatente = new Map(vehiculos.map((v) => [v.patente, v]));
     const egresoByVisitaId = new Map(egresos.map((e) => [e.visita_id, e]));
+    const medioPagoById = new Map(mediosPago.map((m) => [m.id, m]));
 
     return visitas
-      .map((visita) =>
-        flattenVehicle(visita, vehiculoByPatente.get(visita.vehiculo_id), egresoByVisitaId.get(visita.id))
-      )
+      .map((visita) => {
+        const egreso = egresoByVisitaId.get(visita.id);
+        const medioPago = egreso?.medio_pago_id ? medioPagoById.get(egreso.medio_pago_id) : null;
+        return flattenVehicle(visita, vehiculoByPatente.get(visita.vehiculo_id), egreso, medioPago);
+      })
       .filter(Boolean);
   },
 
@@ -122,12 +144,31 @@ export const storage = {
       p_visita_id: id,
       p_hora_salida: new Date(patch.horaSalida).toISOString(),
       p_monto: patch.monto,
+      p_medio_pago_id: patch.medioPagoId,
     });
     if (error) throw error;
   },
 
   async deleteAllVehicles() {
     const { error } = await supabase.from("visitas").delete().neq("id", "");
+    if (error) throw error;
+  },
+
+  async deleteVehicle(id) {
+    const { error } = await supabase.rpc("soft_delete_visita", { p_visita_id: id });
+    if (error) throw error;
+  },
+
+  async getMediosPago() {
+    const { data, error } = await supabase.from("medios_pago").select("*").order("nombre");
+    if (error) throw error;
+    return data;
+  },
+
+  async upsertMedioPago(medio) {
+    const { error } = await supabase
+      .from("medios_pago")
+      .upsert({ id: medio.id, nombre: medio.nombre, activo: medio.activo });
     if (error) throw error;
   },
 
@@ -177,10 +218,15 @@ export const storage = {
     return supabase.storage.from("logos").getPublicUrl(path).data.publicUrl;
   },
 
-  subscribeToChanges({ onVehicleChange, onConfigChange }) {
+  subscribeToChanges({ onVehicleChange, onConfigChange, onMediosPagoChange }) {
     const refreshConfig = async () => {
       const config = await storage.getConfig();
       if (config) onConfigChange(config);
+    };
+
+    const refreshMediosPago = async () => {
+      const mediosPago = await storage.getMediosPago();
+      onMediosPagoChange(mediosPago);
     };
 
     const channel = supabase
@@ -188,6 +234,10 @@ export const storage = {
       .on("postgres_changes", { event: "*", schema: "public", table: "visitas" }, (payload) => {
         if (payload.eventType === "DELETE") {
           onVehicleChange({ eventType: "DELETE", vehicle: { id: payload.old.id } });
+          return;
+        }
+        if (payload.eventType === "UPDATE" && payload.new.deleted_at) {
+          onVehicleChange({ eventType: "DELETE", vehicle: { id: payload.new.id } });
           return;
         }
         getVehicleById(payload.new.id)
@@ -208,6 +258,9 @@ export const storage = {
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "tarifas_por_tipo" }, () => {
         refreshConfig().catch((err) => console.error("storage: error refrescando config en tiempo real", err));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "medios_pago" }, () => {
+        refreshMediosPago().catch((err) => console.error("storage: error refrescando medios de pago en tiempo real", err));
       })
       .subscribe();
 
