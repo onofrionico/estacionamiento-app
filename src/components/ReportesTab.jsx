@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Car, BarChart3, Search, Clock3, Download } from "lucide-react";
+import { Car, BarChart3, Search, Clock3, Download, Trash2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
@@ -16,12 +16,24 @@ import {
 /* Reportes                                                             */
 /* ------------------------------------------------------------------ */
 
-export default function ReportesTab({ vehicles, now }) {
+const PERIODOS = [
+  { id: "hoy", label: "Hoy" },
+  { id: "semana", label: "Semana" },
+  { id: "quincena", label: "Quincena" },
+  { id: "mes", label: "Mes" },
+];
+
+export default function ReportesTab({ vehicles, now, onEliminar }) {
   const [periodo, setPeriodo] = useState("hoy"); // hoy | semana | quincena | mes
   const [fechaDesde, setFechaDesde] = useState(dayKey(now - 29 * 24 * 3600 * 1000));
   const [fechaHasta, setFechaHasta] = useState(dayKey(now));
 
   const cortes = useMemo(() => computeCortes(vehicles, now), [vehicles, now]);
+
+  const desglosePorMedioPago = useMemo(
+    () => montosPorMedioPago(vehicles, periodoFromTs(periodo, now)),
+    [vehicles, periodo, now]
+  );
 
   const chartData = useMemo(() => {
     if (periodo === "hoy") return movimientosPorHora(vehicles, now);
@@ -67,6 +79,7 @@ export default function ReportesTab({ vehicles, now }) {
         "Hora salida": fmtTime(v.horaSalida),
         "Duración": fmtDur((v.horaSalida - v.horaIngreso) / 60000),
         Monto: v.monto ?? "",
+        "Medio de pago": v.medioPago || "",
       }));
 
     downloadXLSX(`reporte-estacionamiento-${fechaDesde}_a_${fechaHasta}.xlsx`, {
@@ -123,12 +136,7 @@ export default function ReportesTab({ vehicles, now }) {
       </div>
 
       <div className="flex gap-1.5 mb-4">
-        {[
-          { id: "hoy", label: "Hoy" },
-          { id: "semana", label: "Semana" },
-          { id: "quincena", label: "Quincena" },
-          { id: "mes", label: "Mes" },
-        ].map((p) => (
+        {PERIODOS.map((p) => (
           <button
             key={p.id}
             onClick={() => setPeriodo(p.id)}
@@ -143,6 +151,33 @@ export default function ReportesTab({ vehicles, now }) {
           </button>
         ))}
       </div>
+
+      {desglosePorMedioPago.length > 0 && (
+        <div className="rounded-xl p-3.5 mb-3" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <p style={{ color: "var(--muted)" }} className="text-xs font-semibold mb-2">
+            Recaudación por medio de pago — {PERIODOS.find((p) => p.id === periodo)?.label}
+          </p>
+          <div className="space-y-1.5">
+            {desglosePorMedioPago.map((d) => (
+              <div key={d.nombre} className="flex items-center justify-between text-sm">
+                <span>{d.nombre}</span>
+                <span style={{ fontFamily: "var(--font-display)" }} className="font-semibold">
+                  {fmtMoney(d.monto)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div
+            className="flex items-center justify-between text-sm mt-2 pt-2"
+            style={{ borderTop: "1px solid var(--border)" }}
+          >
+            <span className="font-semibold">Total</span>
+            <span style={{ fontFamily: "var(--font-display)" }} className="font-bold">
+              {fmtMoney(desglosePorMedioPago.reduce((a, d) => a + d.monto, 0))}
+            </span>
+          </div>
+        </div>
+      )}
 
       <ChartCard title="Ingresos y egresos">
         <div className={scrollable ? "overflow-x-auto" : ""}>
@@ -178,13 +213,14 @@ export default function ReportesTab({ vehicles, now }) {
         </div>
       </ChartCard>
 
-      <HistorialSection vehicles={vehicles} now={now} />
+      <HistorialSection vehicles={vehicles} now={now} onEliminar={onEliminar} />
     </div>
   );
 }
 
-function HistorialSection({ vehicles, now }) {
+function HistorialSection({ vehicles, now, onEliminar }) {
   const [q, setQ] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const filtered = vehicles
     .filter((v) => v.patente.includes(q.toUpperCase()))
     .sort((a, b) => b.horaIngreso - a.horaIngreso);
@@ -197,6 +233,7 @@ function HistorialSection({ vehicles, now }) {
       Salida: v.horaSalida ? new Date(v.horaSalida).toLocaleString("es-AR") : "-",
       "Duración": fmtDur(((v.horaSalida || now) - v.horaIngreso) / 60000) + (v.horaSalida ? "" : " (en curso)"),
       Monto: v.monto ?? "",
+      "Medio de pago": v.medioPago || "",
       Estado: v.estado === "dentro" ? "Dentro" : "Afuera",
     }));
     downloadXLSX(`historial-vehiculos-${dayKey(now)}.xlsx`, { Historial: rows });
@@ -236,38 +273,77 @@ function HistorialSection({ vehicles, now }) {
           <div className="max-h-72 overflow-y-auto">
             {filtered.map((v, i) => {
               const Icon = TIPOS.find((t) => t.id === v.tipo)?.Icon || Car;
+              const confirming = confirmDeleteId === v.id;
               return (
                 <div
                   key={v.id}
-                  className="flex items-center justify-between px-3 py-2.5"
+                  className="px-3 py-2.5"
                   style={{ background: "var(--surface)", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}
                 >
-                  <div className="flex items-center gap-2">
-                    <Icon size={14} style={{ color: "var(--muted)" }} />
-                    <div>
-                      <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-semibold tracking-wide">
-                        {v.patente}
-                      </p>
-                      <p style={{ color: "var(--muted)" }} className="text-[10px]">
-                        {fmtDateShort(v.horaIngreso)} {fmtTime(v.horaIngreso)}
-                        {v.horaSalida ? ` → ${fmtTime(v.horaSalida)}` : ""}
-                      </p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon size={14} style={{ color: "var(--muted)" }} />
+                      <div>
+                        <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-semibold tracking-wide">
+                          {v.patente}
+                        </p>
+                        <p style={{ color: "var(--muted)" }} className="text-[10px]">
+                          {fmtDateShort(v.horaIngreso)} {fmtTime(v.horaIngreso)}
+                          {v.horaSalida ? ` → ${fmtTime(v.horaSalida)}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        {v.estado === "dentro" ? (
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                            style={{ background: "var(--accent2)", color: "#08210F" }}
+                          >
+                            Dentro
+                          </span>
+                        ) : (
+                          <>
+                            <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-bold">
+                              {fmtMoney(v.monto)}
+                            </p>
+                            {v.medioPago && (
+                              <p style={{ color: "var(--muted)" }} className="text-[10px]">{v.medioPago}</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(v.id)}
+                        className="p-1.5 rounded-lg"
+                        style={{ color: "var(--muted)" }}
+                        aria-label="Borrar registro"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
-                  <div className="text-right">
-                    {v.estado === "dentro" ? (
-                      <span
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                        style={{ background: "var(--accent2)", color: "#08210F" }}
+                  {confirming && (
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => { onEliminar(v.id); setConfirmDeleteId(null); }}
+                        className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                        style={{ background: "var(--danger)", color: "#fff" }}
                       >
-                        Dentro
-                      </span>
-                    ) : (
-                      <p style={{ fontFamily: "var(--font-display)" }} className="text-xs font-bold">
-                        {fmtMoney(v.monto)}
-                      </p>
-                    )}
-                  </div>
+                        Confirmar borrado
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="px-3 py-2 rounded-lg text-xs"
+                        style={{ background: "var(--surface2)", color: "var(--muted)" }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -344,4 +420,24 @@ function movimientosPorDia(vehicles, now, dias) {
     buckets[k].picoOcupacion = max;
   });
   return order.map((k) => buckets[k]);
+}
+
+/** Resuelve el timestamp "desde" para un id de período (mismos umbrales que computeCortes). */
+function periodoFromTs(periodo, now) {
+  if (periodo === "hoy") return startOfDay(now);
+  const dias = periodo === "semana" ? 7 : periodo === "quincena" ? 15 : 30;
+  return now - dias * 24 * 3600 * 1000;
+}
+
+/** Recaudación agrupada por medio de pago desde fromTs. Sin medio cargado -> "Sin especificar". */
+function montosPorMedioPago(vehicles, fromTs) {
+  const salidas = vehicles.filter((v) => v.estado === "afuera" && v.horaSalida && v.horaSalida >= fromTs);
+  const totales = new Map();
+  salidas.forEach((v) => {
+    const nombre = v.medioPago || "Sin especificar";
+    totales.set(nombre, (totales.get(nombre) || 0) + (v.monto || 0));
+  });
+  return [...totales.entries()]
+    .map(([nombre, monto]) => ({ nombre, monto }))
+    .sort((a, b) => b.monto - a.monto);
 }

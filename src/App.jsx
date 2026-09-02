@@ -12,6 +12,7 @@ import { signOut, fetchProfile, TABS_POR_ROL, ROLES } from "./lib/auth";
 import RootStyles from "./components/RootStyles";
 import { TopBar, BottomNav } from "./components/Nav";
 import LoginScreen from "./components/LoginScreen";
+import Ticket from "./components/Ticket";
 
 const EntradaTab = lazy(() => import("./components/EntradaTab"));
 const SalidaTab = lazy(() => import("./components/SalidaTab"));
@@ -57,6 +58,8 @@ export default function App() {
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  const [printJob, setPrintJob] = useState(null);
+  const [mediosPago, setMediosPago] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -82,17 +85,20 @@ export default function App() {
     if (!session) {
       setVehicles([]);
       setConfig(null);
+      setMediosPago([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     (async () => {
       try {
-        const [vehiclesRes, configRes] = await Promise.all([
+        const [vehiclesRes, configRes, mediosPagoRes] = await Promise.all([
           storage.getVehicles(),
           storage.getConfig(),
+          storage.getMediosPago(),
         ]);
         setVehicles(vehiclesRes);
+        setMediosPago(mediosPagoRes);
         if (configRes) {
           setConfig(mergeConfig(configRes));
         } else {
@@ -102,6 +108,7 @@ export default function App() {
       } catch (e) {
         setVehicles([]);
         setConfig(DEFAULT_CONFIG);
+        setMediosPago([]);
       } finally {
         setLoading(false);
       }
@@ -124,6 +131,7 @@ export default function App() {
         });
       },
       onConfigChange: (configRow) => setConfig(mergeConfig(configRow)),
+      onMediosPagoChange: setMediosPago,
     });
     return unsubscribe;
   }, [session?.user?.id, loading]);
@@ -132,6 +140,10 @@ export default function App() {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (printJob) window.print();
+  }, [printJob]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -175,13 +187,24 @@ export default function App() {
   const disponibles = Math.max(0, config.totalEspacios - ocupados);
   const ocupacionPct = Math.min(100, Math.round((ocupados / Math.max(1, config.totalEspacios)) * 100));
 
+  const imprimir = (tipo, vehicle) => {
+    setPrintJob({ tipo, vehicle });
+  };
+
   const registrarIngreso = async (patente, tipo) => {
     const pat = patente.trim().toUpperCase();
-    if (!pat) return showToast("Ingresá una patente");
-    if (vehiculosDentro.some((v) => v.patente === pat)) {
-      return showToast(`${pat} ya está registrado dentro`);
+    if (!pat) {
+      showToast("Ingresá una patente");
+      return null;
     }
-    if (disponibles <= 0) return showToast("No hay espacio disponible");
+    if (vehiculosDentro.some((v) => v.patente === pat)) {
+      showToast(`${pat} ya está registrado dentro`);
+      return null;
+    }
+    if (disponibles <= 0) {
+      showToast("No hay espacio disponible");
+      return null;
+    }
     const vehicle = {
       id: `${pat}-${Date.now()}`,
       patente: pat,
@@ -193,9 +216,13 @@ export default function App() {
     };
     setVehicles((prev) => [vehicle, ...prev]);
     try {
-      await storage.insertVehicle(vehicle);
+      const inserted = await storage.insertVehicle(vehicle);
+      const vehicleConTicket = { ...vehicle, numeroTicket: inserted.numeroTicket };
+      setVehicles((prev) => prev.map((v) => (v.id === vehicle.id ? vehicleConTicket : v)));
       setSaveError(false);
       showToast(`Ingreso registrado: ${pat}`);
+      if (config.imprimirIngreso) imprimir("ingreso", vehicleConTicket);
+      return vehicleConTicket;
     } catch (e) {
       setVehicles((prev) => prev.filter((v) => v.id !== vehicle.id));
       if (e.code === "DUPLICATE_PATENTE") {
@@ -203,21 +230,27 @@ export default function App() {
       } else {
         setSaveError(true);
       }
+      return null;
     }
   };
 
-  const registrarSalida = async (id, monto) => {
+  const registrarSalida = async (id, monto, medioPagoId) => {
     const v = vehicles.find((x) => x.id === id);
-    if (!v) return;
-    const patch = { horaSalida: Date.now(), monto, estado: "afuera" };
-    setVehicles((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    if (!v) return null;
+    const medioPago = mediosPago.find((m) => m.id === medioPagoId)?.nombre || null;
+    const patch = { horaSalida: Date.now(), monto, medioPagoId, medioPago, estado: "afuera" };
+    const vehicleActualizado = { ...v, ...patch };
+    setVehicles((prev) => prev.map((x) => (x.id === id ? vehicleActualizado : x)));
     try {
       await storage.updateVehicle(id, patch);
       setSaveError(false);
       showToast(`Salida registrada: ${v.patente} · ${fmtMoney(monto)}`);
+      if (config.imprimirEgreso) imprimir("egreso", vehicleActualizado);
+      return vehicleActualizado;
     } catch (e) {
       setVehicles((prev) => prev.map((x) => (x.id === id ? v : x)));
       setSaveError(true);
+      return null;
     }
   };
 
@@ -257,6 +290,37 @@ export default function App() {
     showToast("Historial borrado");
   };
 
+  const eliminarVehiculo = async (id) => {
+    const prevVehicles = vehicles;
+    setVehicles((prev) => prev.filter((v) => v.id !== id));
+    try {
+      await storage.deleteVehicle(id);
+      setSaveError(false);
+      showToast("Registro borrado");
+    } catch (e) {
+      setVehicles(prevVehicles);
+      setSaveError(true);
+    }
+  };
+
+  const guardarMedioPago = async (medio) => {
+    const prevMediosPago = mediosPago;
+    setMediosPago((prev) => {
+      const idx = prev.findIndex((m) => m.id === medio.id);
+      if (idx === -1) return [...prev, medio];
+      const next = [...prev];
+      next[idx] = medio;
+      return next;
+    });
+    try {
+      await storage.upsertMedioPago(medio);
+      setSaveError(false);
+    } catch (e) {
+      setMediosPago(prevMediosPago);
+      setSaveError(true);
+    }
+  };
+
   return (
     <div style={{ background: "var(--bg)", color: "var(--text)" }} className="min-h-screen flex flex-col font-sans">
       <RootStyles />
@@ -278,7 +342,7 @@ export default function App() {
           }
         >
           {activeTab === "entrada" && (
-            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} />
+            <EntradaTab onRegistrar={registrarIngreso} disponibles={disponibles} onReimprimir={imprimir} vehiculosDentro={vehiculosDentro} />
           )}
           {activeTab === "salida" && (
             <SalidaTab
@@ -286,7 +350,9 @@ export default function App() {
               now={now}
               rates={config.rates}
               umbrales={config.umbrales}
+              mediosPago={mediosPago}
               onSalida={registrarSalida}
+              onReimprimir={imprimir}
             />
           )}
           {activeTab === "estado" && (
@@ -295,10 +361,11 @@ export default function App() {
               now={now}
               totalEspacios={config.totalEspacios}
               disponibles={disponibles}
+              onReimprimir={imprimir}
             />
           )}
           {activeTab === "reportes" && (
-            <ReportesTab vehicles={vehicles} now={now} />
+            <ReportesTab vehicles={vehicles} now={now} onEliminar={eliminarVehiculo} />
           )}
           {activeTab === "config" && (
             <ConfigTab
@@ -307,6 +374,8 @@ export default function App() {
               onResetDemo={resetDemo}
               onBorrarTodo={borrarTodo}
               currentUserId={profile.id}
+              mediosPago={mediosPago}
+              onSaveMedioPago={guardarMedioPago}
             />
           )}
         </Suspense>
@@ -330,6 +399,10 @@ export default function App() {
           <AlertTriangle size={13} /> No se pudo guardar
         </div>
       )}
+
+      <div id="ticket-print">
+        <Ticket config={config} job={printJob} />
+      </div>
     </div>
   );
 }

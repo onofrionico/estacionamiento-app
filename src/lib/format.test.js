@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcularMonto, tramoLabel } from "./format";
+import { calcularMonto, tramoLabel, fmtDateTime, slugify, suggestPatenteSuffix } from "./format";
 
 const rates = {
   mediaHora: 1500,
@@ -85,5 +85,48 @@ describe("tramoLabel con tolerancia", () => {
     const umbralesNegativos = { mediaEstadiaHoras: 6, estadiaCompletaHoras: 24, toleranciaMin: -10 };
     // Con clamp: t = 55 - 0 = 55 -> "Hora". Sin clamp: t = 55 - (-10) = 65 -> "Media estadía".
     expect(tramoLabel(55, umbralesNegativos)).toBe("Hora");
+  });
+});
+
+describe("fmtDateTime", () => {
+  it("incluye la fecha en formato dd/mm/aaaa y la hora en formato hh:mm", () => {
+    const ts = new Date(2026, 7, 31, 14, 5, 0).getTime(); // 31/ago/2026 14:05 (mes 0-indexed)
+    const out = fmtDateTime(ts);
+    expect(out).toBe("31/08/2026, 14:05");
+  });
+});
+
+describe("slugify", () => {
+  it("pasa a minusculas y reemplaza espacios por guiones", () => {
+    expect(slugify("Mercado Pago")).toBe("mercado-pago");
+  });
+
+  it("quita acentos", () => {
+    expect(slugify("Débito")).toBe("debito");
+  });
+
+  it("quita caracteres que no sean letras/numeros", () => {
+    expect(slugify("QR / Billetera!")).toBe("qr-billetera");
+  });
+
+  it("quita guiones al principio y al final", () => {
+    expect(slugify("  Efectivo  ")).toBe("efectivo");
+  });
+});
+
+describe("suggestPatenteSuffix", () => {
+  it("sugiere -B si la base ya esta dentro y -B esta libre", () => {
+    const vehiculosDentro = [{ patente: "234" }];
+    expect(suggestPatenteSuffix("234", vehiculosDentro)).toBe("234-B");
+  });
+
+  it("sugiere la siguiente letra libre si -B tambien esta dentro", () => {
+    const vehiculosDentro = [{ patente: "234" }, { patente: "234-B" }];
+    expect(suggestPatenteSuffix("234", vehiculosDentro)).toBe("234-C");
+  });
+
+  it("no depende de que la base este en la lista, solo evita colisiones existentes", () => {
+    const vehiculosDentro = [{ patente: "234-B" }];
+    expect(suggestPatenteSuffix("234", vehiculosDentro)).toBe("234-C");
   });
 });

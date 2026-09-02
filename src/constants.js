@@ -2,6 +2,11 @@ import { Car, Bike, Truck } from "lucide-react";
 
 export const DEFAULT_CONFIG = {
   nombre: "Mi Estacionamiento",
+  direccion: "",
+  telefono: "",
+  logoUrl: "",
+  imprimirIngreso: false,
+  imprimirEgreso: false,
   totalEspacios: 40,
   rates: {
     auto: {

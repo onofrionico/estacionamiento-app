@@ -1,20 +1,40 @@
 import React, { useState } from "react";
-import { LogIn, Check } from "lucide-react";
+import { LogIn, Check, Printer, AlertTriangle, X } from "lucide-react";
 import { TIPOS } from "../constants";
+import { suggestPatenteSuffix } from "../lib/format";
 import { SectionTitle } from "./ui";
 
 /* ------------------------------------------------------------------ */
 /* Entrada                                                             */
 /* ------------------------------------------------------------------ */
 
-export default function EntradaTab({ onRegistrar, disponibles }) {
+export default function EntradaTab({ onRegistrar, disponibles, onReimprimir, vehiculosDentro }) {
   const [patente, setPatente] = useState("");
   const [tipo, setTipo] = useState("auto");
+  const [ultimoRegistro, setUltimoRegistro] = useState(null);
+  const [colision, setColision] = useState(null); // { base, sugerida } | null
 
-  const submit = (e) => {
-    e.preventDefault();
-    onRegistrar(patente, tipo);
+  const registrar = async (pat) => {
+    const registrado = await onRegistrar(pat, tipo);
+    if (registrado) setUltimoRegistro(registrado);
     setPatente("");
+    setColision(null);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const pat = patente.trim().toUpperCase();
+    if (!pat) return;
+    const enUso = vehiculosDentro.some((v) => v.patente === pat);
+    if (enUso) {
+      setColision({ base: pat, sugerida: suggestPatenteSuffix(pat, vehiculosDentro) });
+      return;
+    }
+    await registrar(pat);
+  };
+
+  const confirmarComoDistinto = () => {
+    registrar(colision.sugerida);
   };
 
   return (
@@ -29,7 +49,11 @@ export default function EntradaTab({ onRegistrar, disponibles }) {
           <input
             autoFocus
             value={patente}
-            onChange={(e) => setPatente(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setPatente(e.target.value.toUpperCase());
+              setUltimoRegistro(null);
+              setColision(null);
+            }}
             placeholder="AB123CD"
             className="w-full text-2xl font-bold tracking-widest text-center py-4 rounded-xl outline-none"
             style={{
@@ -41,6 +65,35 @@ export default function EntradaTab({ onRegistrar, disponibles }) {
             maxLength={8}
           />
         </div>
+
+        {colision && (
+          <div className="rounded-xl p-3.5 flex items-start gap-2.5" style={{ background: "var(--surface)", border: "1px solid var(--danger)" }}>
+            <AlertTriangle size={18} style={{ color: "var(--danger)" }} className="shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm mb-2.5">
+                Ya hay un vehículo con patente <strong>{colision.base}</strong> registrado. ¿Es otro vehículo?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={confirmarComoDistinto}
+                  className="flex-1 py-2.5 rounded-lg font-semibold text-sm"
+                  style={{ background: "var(--accent2)", color: "#08210F" }}
+                >
+                  Registrar como {colision.sugerida}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setColision(null)}
+                  className="px-4 py-2.5 rounded-lg text-sm"
+                  style={{ background: "var(--surface2)", color: "var(--muted)" }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div>
           <label style={{ color: "var(--muted)" }} className="text-xs font-medium uppercase tracking-wide mb-1.5 block">
@@ -80,6 +133,17 @@ export default function EntradaTab({ onRegistrar, disponibles }) {
           </p>
         )}
       </form>
+
+      {ultimoRegistro && (
+        <button
+          type="button"
+          onClick={() => onReimprimir("ingreso", ultimoRegistro)}
+          className="w-full mt-3 py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2"
+          style={{ background: "var(--surface2)", color: "var(--text)" }}
+        >
+          <Printer size={16} /> Reimprimir ticket de {ultimoRegistro.patente}
+        </button>
+      )}
     </div>
   );
 }

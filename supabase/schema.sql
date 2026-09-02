@@ -20,6 +20,18 @@ insert into tipos_vehiculo (id, nombre) values
   ('moto', 'Moto'),
   ('camioneta', 'Camioneta');
 
+create table medios_pago (
+  id text primary key,
+  nombre text not null,
+  activo boolean not null default true
+);
+
+insert into medios_pago (id, nombre) values
+  ('efectivo', 'Efectivo'),
+  ('tarjeta', 'Tarjeta'),
+  ('transferencia', 'Transferencia'),
+  ('qr', 'QR / Mercado Pago');
+
 create table vehiculos (
   patente text primary key,
   tipo_id text not null references tipos_vehiculo (id),
@@ -30,8 +42,10 @@ create table visitas (
   id text primary key,
   vehiculo_id text not null references vehiculos (patente),
   hora_ingreso timestamptz not null,
+  numero_ticket int generated always as identity,
   estado text not null check (estado in ('dentro', 'afuera')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint visitas_numero_ticket_unique unique (numero_ticket)
 );
 
 -- Impide que la misma patente tenga dos visitas "dentro" a la vez.
@@ -44,6 +58,7 @@ create table egresos (
   visita_id text primary key references visitas (id) on delete cascade,
   hora_salida timestamptz not null,
   monto numeric not null,
+  medio_pago_id text references medios_pago (id),
   created_at timestamptz not null default now()
 );
 
@@ -74,15 +89,22 @@ create view tarifas_vigentes
 
 create table config (
   id int primary key default 1,
+  nombre text not null default 'Mi Estacionamiento',
+  direccion text,
+  telefono text,
+  logo_url text,
   total_espacios int not null,
   umbral_media_estadia_horas int not null,
   umbral_estadia_completa_horas int not null,
   umbral_tolerancia_min int not null default 15,
+  imprimir_ingreso boolean not null default false,
+  imprimir_egreso boolean not null default false,
   updated_at timestamptz not null default now(),
   check (id = 1)
 );
 
 alter table tipos_vehiculo enable row level security;
+alter table medios_pago enable row level security;
 alter table vehiculos enable row level security;
 alter table visitas enable row level security;
 alter table egresos enable row level security;
@@ -90,6 +112,7 @@ alter table tarifas_por_tipo enable row level security;
 alter table config enable row level security;
 
 grant select on public.tipos_vehiculo to authenticated;
+grant select, insert, update on public.medios_pago to authenticated;
 grant select, insert, update, delete on public.vehiculos to authenticated;
 grant select, insert, update, delete on public.visitas to authenticated;
 grant select, insert, update, delete on public.egresos to authenticated;
@@ -98,6 +121,7 @@ grant select on public.tarifas_vigentes to authenticated;
 grant select, insert, update, delete on public.config to authenticated;
 
 revoke all on public.tipos_vehiculo from anon;
+revoke all on public.medios_pago from anon;
 revoke all on public.vehiculos from anon;
 revoke all on public.visitas from anon;
 revoke all on public.egresos from anon;
@@ -109,6 +133,12 @@ drop policy if exists "allow authenticated read tipos_vehiculo" on tipos_vehicul
 create policy "allow authenticated read tipos_vehiculo"
   on tipos_vehiculo for select
   using (auth.role() = 'authenticated');
+
+drop policy if exists "allow authenticated read/write medios_pago" on medios_pago;
+create policy "allow authenticated read/write medios_pago"
+  on medios_pago for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
 
 drop policy if exists "allow authenticated read/write vehiculos" on vehiculos;
 create policy "allow authenticated read/write vehiculos"
@@ -145,18 +175,21 @@ create policy "allow authenticated read/write config"
 -- (ej. si el cliente se cae entre los dos pasos). security invoker: corre
 -- con los privilegios del usuario autenticado que la llama, así que las
 -- policies RLS de egresos/visitas se siguen aplicando igual.
+drop function if exists public.cerrar_visita(text, timestamptz, numeric);
+
 create or replace function public.cerrar_visita(
   p_visita_id text,
   p_hora_salida timestamptz,
-  p_monto numeric
+  p_monto numeric,
+  p_medio_pago_id text
 )
 returns void
 language plpgsql
 security invoker
 as $$
 begin
-  insert into public.egresos (visita_id, hora_salida, monto)
-  values (p_visita_id, p_hora_salida, p_monto);
+  insert into public.egresos (visita_id, hora_salida, monto, medio_pago_id)
+  values (p_visita_id, p_hora_salida, p_monto, p_medio_pago_id);
 
   update public.visitas
   set estado = 'afuera'
@@ -169,14 +202,14 @@ begin
 end;
 $$;
 
-grant execute on function public.cerrar_visita(text, timestamptz, numeric) to authenticated;
+grant execute on function public.cerrar_visita(text, timestamptz, numeric, text) to authenticated;
 
 -- Habilita eventos de tiempo real (INSERT/UPDATE/DELETE) para que la app
 -- sincronice cambios entre dispositivos sin recargar. No hace falta
 -- replica identity full: los handlers de storage.js solo necesitan el id
 -- (primary key) de la fila vieja en los eventos DELETE, y eso siempre viene
 -- incluido por default.
-alter publication supabase_realtime add table vehiculos, visitas, egresos, tarifas_por_tipo, config;
+alter publication supabase_realtime add table vehiculos, visitas, egresos, tarifas_por_tipo, config, medios_pago;
 
 -- ---------------------------------------------------------------------
 -- Roles y permisos
@@ -250,3 +283,57 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+insert into storage.buckets (id, name, public)
+values ('logos', 'logos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "authenticated write logos" on storage.objects;
+create policy "authenticated write logos" on storage.objects for all
+  using (bucket_id = 'logos' and auth.role() = 'authenticated')
+  with check (bucket_id = 'logos' and auth.role() = 'authenticated');
+
+drop policy if exists "public read logos" on storage.objects;
+create policy "public read logos" on storage.objects for select using (bucket_id = 'logos');
+
+-- ---------------------------------------------------------------------
+-- Borrado lógico de visitas
+-- ---------------------------------------------------------------------
+-- deleted_at is null = registro activo y visible en la app. Nunca se hace
+-- un delete real sobre visitas desde la app: el dato queda en la base para
+-- auditoría (consultable directo en Supabase), la app simplemente deja de
+-- traerlo. Va después de la sección de "Roles y permisos" porque deleted_by
+-- referencia public.profiles, que recién existe a partir de acá.
+
+alter table visitas add column deleted_at timestamptz;
+alter table visitas add column deleted_by uuid references public.profiles (id);
+
+-- Reemplaza visitas_vehiculo_dentro_uk para excluir filas borradas
+-- lógicamente: sin este ajuste, una visita "dentro" borrada seguiría
+-- ocupando el índice único y volver a registrar esa patente fallaría
+-- por violación de unicidad aunque la app ya no la muestre.
+drop index if exists visitas_vehiculo_dentro_uk;
+create unique index visitas_vehiculo_dentro_uk
+  on visitas (vehiculo_id) where estado = 'dentro' and deleted_at is null;
+
+-- Mismo patrón atómico que cerrar_visita: security invoker respeta las
+-- policies RLS de quien llama, y auth.uid() resuelve quién borra del lado
+-- del servidor sin que el cliente tenga que mandarlo.
+create or replace function public.soft_delete_visita(p_visita_id text)
+returns void
+language plpgsql
+security invoker
+as $$
+begin
+  update public.visitas
+  set deleted_at = now(), deleted_by = auth.uid()
+  where id = p_visita_id
+    and deleted_at is null;
+
+  if not found then
+    raise exception 'visita % no existe o ya fue borrada', p_visita_id;
+  end if;
+end;
+$$;
+
+grant execute on function public.soft_delete_visita(text) to authenticated;
