@@ -36,6 +36,9 @@ export const fmtDateTime = (ts) =>
  * `umbrales.toleranciaMin` (default 0) da minutos de gracia antes de pasar
  * al tramo/bloque siguiente — no aplica a los primeros 30 minutos, que se
  * cobran a tarifa "media hora" desde el minuto 1.
+ * Cada dos bloques de media hora se cobran como una tarifa "hora" (más
+ * barata que 2×mediaHora): el bloque después de "hora y media" es "dos
+ * horas completas" (2×hora), no hora + 2×mediaHora.
  */
 export function calcularMonto(minutos, rates, umbrales) {
   const { mediaHora, hora, mediaEstadia, estadiaCompleta, semanal, mensual } = rates;
@@ -48,11 +51,12 @@ export function calcularMonto(minutos, rates, umbrales) {
   const t = minutos - toleranciaMin;
 
   if (t <= 30) return mediaHora;
-  if (t <= 60) return hora;
 
   if (t <= mediaEstadiaMin) {
-    const bloques = Math.ceil((t - 60) / 30);
-    return Math.min(hora + bloques * mediaHora, mediaEstadia);
+    const bloques = Math.max(1, Math.ceil(t / 30));
+    const horasCompletas = Math.floor(bloques / 2);
+    const mediaSuelta = bloques % 2;
+    return Math.min(horasCompletas * hora + mediaSuelta * mediaHora, mediaEstadia);
   }
 
   if (t <= estadiaCompletaMin) {
