@@ -40,8 +40,17 @@ describe("calcularMonto con tolerancia", () => {
     expect(calcularMonto(105, rates, umbrales)).toBe(2500 + 1500); // 60+30+15, todavia bloque 1
   });
 
-  it("cobra el segundo bloque recien despues del bloque 1 + tolerancia", () => {
-    expect(calcularMonto(106, rates, umbrales)).toBe(2500 + 2 * 1500);
+  it("cobra el segundo bloque recien despues del bloque 1 + tolerancia, como dos horas completas (2xhora, no hora+2xmediaHora)", () => {
+    expect(calcularMonto(106, rates, umbrales)).toBe(2 * 2500);
+  });
+
+  it("cada dos bloques de media hora se cobran a tarifa hora, no a 2xmediaHora", () => {
+    // t=121: bloques=ceil(121/30)=5 -> 2 horas completas + 1 media suelta
+    expect(calcularMonto(136, rates, umbrales)).toBe(2 * 2500 + 1500);
+    // t=150: bloques=5 -> igual que arriba
+    expect(calcularMonto(165, rates, umbrales)).toBe(2 * 2500 + 1500);
+    // t=180: bloques=6 -> 3 horas completas, sin media suelta
+    expect(calcularMonto(195, rates, umbrales)).toBe(3 * 2500);
   });
 
   it("sin toleranciaMin en umbrales, se comporta como antes (sin gracia)", () => {
