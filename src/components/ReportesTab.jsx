@@ -197,6 +197,26 @@ export default function ReportesTab({ vehicles, now, onEliminar }) {
         </div>
       </ChartCard>
 
+      <ChartCard title={periodo === "hoy" ? "Monto recaudado por hora" : "Monto recaudado por día"}>
+        <div className={scrollable ? "overflow-x-auto" : ""}>
+          <div style={{ width: scrollable ? chartWidth : "100%" }}>
+            <ResponsiveContainer width={scrollable ? chartWidth : "100%"} height={180}>
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} tickFormatter={(v) => fmtMoney(v)} width={64} />
+                <Tooltip
+                  contentStyle={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: "var(--text)" }}
+                  formatter={(value) => [fmtMoney(value), "Recaudado"]}
+                />
+                <Bar dataKey="recaudado" name="Recaudado" fill="var(--accent)" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </ChartCard>
+
       <ChartCard title={periodo === "hoy" ? "Ocupación por hora" : "Ocupación pico por día"}>
         <div className={scrollable ? "overflow-x-auto" : ""}>
           <div style={{ width: scrollable ? chartWidth : "100%" }}>
@@ -369,7 +389,7 @@ function computeCortes(vehicles, now) {
 function movimientosPorHora(vehicles, now) {
   const dayStart = startOfDay(now);
   const horaActual = new Date(now).getHours();
-  const arr = Array.from({ length: 24 }, (_, h) => ({ hora: `${h}h`, ingresos: 0, egresos: 0, ocupacion: 0 }));
+  const arr = Array.from({ length: 24 }, (_, h) => ({ hora: `${h}h`, ingresos: 0, egresos: 0, ocupacion: 0, recaudado: 0 }));
   vehicles.forEach((v) => {
     if (v.horaIngreso >= dayStart) {
       const h = new Date(v.horaIngreso).getHours();
@@ -377,7 +397,10 @@ function movimientosPorHora(vehicles, now) {
     }
     if (v.horaSalida && v.horaSalida >= dayStart) {
       const h = new Date(v.horaSalida).getHours();
-      if (arr[h]) arr[h].egresos++;
+      if (arr[h]) {
+        arr[h].egresos++;
+        arr[h].recaudado += v.monto || 0;
+      }
     }
   });
   for (let h = 0; h <= horaActual; h++) {
